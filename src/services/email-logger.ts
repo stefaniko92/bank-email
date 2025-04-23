@@ -23,7 +23,7 @@ export async function logEmail(data: any): Promise<void> {
  * @returns An array of logged email data.
  */
 export async function getLoggedEmails(): Promise<any[]> {
-  return emailLogs;
+  return Promise.resolve(emailLogs);
 }
 
 /**

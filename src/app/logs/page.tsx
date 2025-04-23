@@ -7,11 +7,22 @@ import {Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, Table
 
 export default function LogsPage() {
   const [emails, setEmails] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchEmails() {
-      const loggedEmails = await getLoggedEmails();
-      setEmails(loggedEmails);
+      setLoading(true);
+      try {
+        const loggedEmails = await getLoggedEmails();
+        setEmails(loggedEmails);
+        setError(null);
+      } catch (e: any) {
+        setError(e.message || 'Failed to fetch emails');
+        setEmails([]);
+      } finally {
+        setLoading(false);
+      }
     }
 
     fetchEmails();
@@ -26,6 +37,9 @@ export default function LogsPage() {
     <div>
       <h1>Email Logs</h1>
       <Button onClick={handleClearLogs}>Clear Logs</Button>
+
+      {loading && <p>Loading emails...</p>}
+      {error && <p>Error: {error}</p>}
 
       <Table>
         <TableCaption>A list of emails received.</TableCaption>
