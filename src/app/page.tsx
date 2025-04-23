@@ -1,4 +1,5 @@
 
+
 import {
   Sidebar,
   SidebarContent,
@@ -35,7 +36,7 @@ export default function Home() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton href="#">
+                <SidebarMenuButton href="/logs">
                   <Icons.workflow className="mr-2 h-4 w-4" />
                   <span>Logs</span>
                 </SidebarMenuButton>
@@ -53,4 +54,5 @@ export default function Home() {
     </SidebarProvider>
   );
 }
+
 

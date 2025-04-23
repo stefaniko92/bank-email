@@ -1,9 +1,10 @@
 'use server';
 
 import {NextResponse} from 'next/server';
+import {logEmail} from '@/services/email-logger';
 
 /**
- * @fileOverview Receives email data from Mailgun via POST request.
+ * @fileOverview Receives email data from Mailgun via POST request and logs it.
  *
  * This route handles POST requests to receive email data from Mailgun.
  * It logs the received data and returns a JSON response indicating success or failure.
@@ -17,7 +18,8 @@ export async function POST(request: Request) {
       data[key] = value;
     }
 
-    console.log('Received email data from Mailgun:', data);
+    // Log the received email data
+    await logEmail(data);
 
     return NextResponse.json({received: true, data}, {status: 200});
   } catch (error) {
