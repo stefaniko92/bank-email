@@ -52,15 +52,15 @@ const extractTransactionDetailsPrompt = ai.definePrompt({
 
   Specifically, extract the following fields:
 
-  - Naziv i sedište primaoca / platioca (Name and address of the recipient / payer)
+  - Naziv i sedište primaoca platioca (Name and address of the recipient / payer)
   - Iznos odobrenja (Amount of approval)
   - Poziv na broj odobrenja (Reference number of approval)
   - Datum knjiženja (Date of posting)
 
   Make sure to output the date in ISO format (YYYY-MM-DD).
   If a field cannot be determined, return "unknown".
-  If the Iznos odobrenja contains characters, remove them and leave only numbers.
-  If the Datum knjiženja contains characters, remove them and leave only numbers.
+
+  Be precise.
   `,
 });
 
