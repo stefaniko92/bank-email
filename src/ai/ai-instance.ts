@@ -8,5 +8,4 @@ export const ai = genkit({
       apiKey: process.env.OPENAI_API_KEY,
     }),
   ],
-  model: 'gemini-pro',
 });

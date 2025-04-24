@@ -4,7 +4,7 @@
  *
  * - extractTransactionDetails - A function that extracts transaction details from PDF content.
  * - ExtractTransactionDetailsInput - The input type for the extractTransactionDetails function.
- * - ExtractTransactionDetailsOutput - The return type for the extractTransactionDetails function.
+ * - ExtractTransactionDetailsOutput - The return type for the ExtractTransactionDetails function.
  */
 
 import {ai} from '@/ai/ai-instance';
@@ -49,6 +49,7 @@ const extractTransactionDetailsPrompt = ai.definePrompt({
       datumKnjizenja: z.string().describe('The date of the transaction in ISO format (YYYY-MM-DD).'),
     }),
   },
+  model: 'gemini-1.0-pro',
   prompt: `You are an expert at extracting transaction details from text.
 
   Given the following text extracted from a PDF, extract the transaction details.
