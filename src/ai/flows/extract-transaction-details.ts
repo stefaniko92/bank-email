@@ -44,31 +44,47 @@ const extractTransactionDetailsPrompt = ai.definePrompt({
       datumKnjizenja: z.string().describe('The date of the transaction in ISO format (YYYY-MM-DD).'),
     }),
   },
+  model: 'gemini-1.5-flash',
   prompt: `
-You are an AI assistant specialized in reading bank statement text and extracting key transaction details.
+You are a structured data extractor for Serbian bank statements.
 
-You will be given text extracted from a bank statement in Serbian. Identify and extract the following fields from the first transaction listed in the text:
+You will receive plain text extracted from a Serbian bank statement (Izvod). Your job is to analyze the **first transaction** in the text and return key data in a structured JSON format.
 
-- nazivSedistePrimaoca: The full name and address of the recipient
-- iznosOdobrenja: The credited amount in dinars (e.g., "3.600,00")
-- pozivNaBrojOdobrenja: The reference number for the credit (e.g., "87000137250")
-- datumKnjizenja: The date of the transaction in ISO format (YYYY-MM-DD)
+### Example input:
 
-Only extract the **first transaction** listed in the text.
+Text:
+MASLINA TRAVEL NIS  
+MIODRAG GASIC PR,  
+BOROVA 31B, DONJA VREZI  
+170005004484200057  0,00  3.600,00  221  
+05-171-209-2025  
+87000137250  
+869(2)  
+23.04.2025 Placanje po racunu. [IZVTR00588513603]
+
+Expected JSON output:
+{
+  "nazivSedistePrimaoca": "MASLINA TRAVEL NIS, MIODRAG GASIC PR, BOROVA 31B, DONJA VREZI",
+  "iznosOdobrenja": "3.600,00",
+  "pozivNaBrojOdobrenja": "87000137250",
+  "datumKnjizenja": "2025-04-23"
+}
+
+### Now extract data from this input:
 
 Text:
 {{{pdfContent}}}
 
-Return a JSON object in this format:
+Only respond with JSON in the format:
 {
   "nazivSedistePrimaoca": "...",
   "iznosOdobrenja": "...",
   "pozivNaBrojOdobrenja": "...",
   "datumKnjizenja": "YYYY-MM-DD"
 }
-If any field is missing or unclear, return "unknown" as the value.
-Be precise and do not invent data.
-`,
+
+If any value is not found, use "unknown".
+`
 });
 
 const extractTransactionDetailsFlow = ai.defineFlow<
