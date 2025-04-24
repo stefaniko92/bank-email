@@ -44,7 +44,7 @@ const extractTransactionDetailsPrompt = ai.definePrompt({
       datumKnjizenja: z.string().describe('The date of the transaction in ISO format (YYYY-MM-DD).'),
     }),
   },
-  model: 'gemini-1.5-flash',
+  model: 'gemini-1.0-pro',
   prompt: `
 You are a structured data extractor for Serbian bank statements.
 
