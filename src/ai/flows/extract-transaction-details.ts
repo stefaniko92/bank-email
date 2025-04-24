@@ -44,24 +44,31 @@ const extractTransactionDetailsPrompt = ai.definePrompt({
       datumKnjizenja: z.string().describe('The date of the transaction in ISO format (YYYY-MM-DD).'),
     }),
   },
-  prompt: `You are an expert at extracting transaction details from text.
+  prompt: `
+You are an AI assistant specialized in reading bank statement text and extracting key transaction details.
 
-  Given the following text extracted from a PDF, extract the transaction details.
+You will be given text extracted from a bank statement in Serbian. Identify and extract the following fields from the first transaction listed in the text:
 
-  Text: {{{pdfContent}}}
+- nazivSedistePrimaoca: The full name and address of the recipient
+- iznosOdobrenja: The credited amount in dinars (e.g., "3.600,00")
+- pozivNaBrojOdobrenja: The reference number for the credit (e.g., "87000137250")
+- datumKnjizenja: The date of the transaction in ISO format (YYYY-MM-DD)
 
-  Specifically, extract the following fields:
+Only extract the **first transaction** listed in the text.
 
-  - Naziv i sedište primaoca platioca (Name and address of the recipient / payer)
-  - Iznos odobrenja (Amount of approval)
-  - Poziv na broj odobrenja (Reference number of approval)
-  - Datum knjiženja (Date of posting)
+Text:
+{{{pdfContent}}}
 
-  Make sure to output the date in ISO format (YYYY-MM-DD).
-  If a field cannot be determined, return "unknown".
-
-  Be precise.
-  `,
+Return a JSON object in this format:
+{
+  "nazivSedistePrimaoca": "...",
+  "iznosOdobrenja": "...",
+  "pozivNaBrojOdobrenja": "...",
+  "datumKnjizenja": "YYYY-MM-DD"
+}
+If any field is missing or unclear, return "unknown" as the value.
+Be precise and do not invent data.
+`,
 });
 
 const extractTransactionDetailsFlow = ai.defineFlow<
