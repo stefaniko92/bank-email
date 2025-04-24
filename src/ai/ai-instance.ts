@@ -8,6 +8,5 @@ export const ai = genkit({
       apiKey: process.env.OPENAI_API_KEY,
     }),
   ],
-  model: 'openai/gpt-4-turbo-preview',
+  model: 'gemini-1.0-pro',
 });
-
