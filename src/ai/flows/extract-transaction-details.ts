@@ -44,7 +44,7 @@ const extractTransactionDetailsPrompt = ai.definePrompt({
       datumKnjizenja: z.string().describe('The date of the transaction in ISO format (YYYY-MM-DD).'),
     }),
   },
-  model: 'gemini-20-flash',
+  model: 'gemini20flash',
   prompt: `You are an expert at extracting transaction details from text.
 
   Given the following text extracted from a PDF, extract the transaction details.
@@ -79,4 +79,5 @@ const extractTransactionDetailsFlow = ai.defineFlow<
       return output!;
   }
 );
+
 
