@@ -1,14 +1,12 @@
-
 import { genkit } from 'genkit';
-import { googleAI } from '@genkit-ai/googleai';
+import { googleAI, gemini } from '@genkit-ai/googleai';
 
 export const ai = genkit({
-  promptDir: './prompts',
-  plugins: [
-    googleAI({
-      apiKey: process.env.AI_API_KEY,
-    }),
-  ],
+  plugins: [googleAI()],
+  model: gemini('gemini-1.5-flash'),
 });
 
-
+async () => {
+  const { text } = await ai.generate({prompt: 'hi Gemini!'});
+  console.log(text);
+};
