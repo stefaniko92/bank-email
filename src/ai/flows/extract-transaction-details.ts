@@ -26,7 +26,12 @@ export type ExtractTransactionDetailsOutput = z.infer<typeof ExtractTransactionD
 export async function extractTransactionDetails(
   input: ExtractTransactionDetailsInput
 ): Promise<ExtractTransactionDetailsOutput> {
-  return extractTransactionDetailsFlow(input);
+  try {
+    return await extractTransactionDetailsFlow(input);
+  } catch (error) {
+    console.error('Error in extractTransactionDetails:', error);
+    throw error;
+  }
 }
 
 const extractTransactionDetailsPrompt = ai.definePrompt({
@@ -74,7 +79,12 @@ const extractTransactionDetailsFlow = ai.defineFlow<
     outputSchema: ExtractTransactionDetailsOutputSchema,
   },
   async input => {
-    const {output} = await extractTransactionDetailsPrompt(input);
-    return output!;
+    try {
+      const {output} = await extractTransactionDetailsPrompt(input);
+      return output!;
+    } catch (error) {
+      console.error('Error in extractTransactionDetailsFlow:', error);
+      throw error;
+    }
   }
 );

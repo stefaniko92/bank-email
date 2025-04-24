@@ -56,6 +56,14 @@ export default function Home() {
       }
     };
 
+    reader.onerror = () => {
+      toast({
+        title: 'Error',
+        description: `Failed to read the file.`,
+        variant: 'destructive',
+      });
+    };
+
     // Read the file as text
     reader.readAsText(file);
   };
@@ -115,5 +123,3 @@ export default function Home() {
     </SidebarProvider>
   );
 }
-
-
