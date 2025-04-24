@@ -1,11 +1,12 @@
-import {genkit} from 'genkit';
-import { googleAI } from '@genkit-ai/googleai';
+import { genkit } from 'genkit';
+import { google } from '@genkit-ai/google';
 
 export const ai = genkit({
   promptDir: './prompts',
   plugins: [
-    googleAI({
+    google({
       apiKey: process.env.AI_API_KEY,
     }),
-  ]
+  ],
 });
+
