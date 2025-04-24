@@ -15,14 +15,21 @@ import {Icons} from '@/components/icons';
 import {useState} from 'react';
 import {extractTransactionDetails} from '@/ai/flows/extract-transaction-details';
 import {Button} from '@/components/ui/button';
+import {useToast} from '@/hooks/use-toast';
 
 export default function Home() {
   const [pdfContent, setPdfContent] = useState<string | null>(null);
   const [paymentDetails, setPaymentDetails] = useState<any | null>(null);
+  const {toast} = useToast();
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
+      toast({
+        title: 'Error',
+        description: 'No file selected.',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -31,9 +38,22 @@ export default function Home() {
       const content = e.target?.result as string;
       setPdfContent(content);
 
-      // Extract payment details using AI
-      const details = await extractTransactionDetails({pdfContent: content});
-      setPaymentDetails(details);
+      try {
+        // Extract payment details using AI
+        const details = await extractTransactionDetails({pdfContent: content});
+        setPaymentDetails(details);
+        toast({
+          title: 'Success',
+          description: 'Payment details extracted successfully.',
+        });
+      } catch (error: any) {
+        console.error('Error extracting payment details:', error);
+        toast({
+          title: 'Error',
+          description: `Failed to extract payment details: ${error.message}`,
+          variant: 'destructive',
+        });
+      }
     };
 
     // Read the file as text
@@ -84,10 +104,10 @@ export default function Home() {
           {paymentDetails && (
             <div className="mt-4">
               <h3>Payment Details:</h3>
-              <p>Transaction ID: {paymentDetails.transactionId}</p>
-              <p>Amount: {paymentDetails.amount}</p>
-              <p>Date: {paymentDetails.date}</p>
-              <p>Vendor: {paymentDetails.vendor}</p>
+              <p>Transaction ID: {paymentDetails.transactionId || 'Unknown'}</p>
+              <p>Amount: {paymentDetails.amount || 'Unknown'}</p>
+              <p>Date: {paymentDetails.date || 'Unknown'}</p>
+              <p>Vendor: {paymentDetails.vendor || 'Unknown'}</p>
             </div>
           )}
         </section>
