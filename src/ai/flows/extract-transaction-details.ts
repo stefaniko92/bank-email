@@ -17,7 +17,7 @@ export type ExtractTransactionDetailsInput = z.infer<typeof ExtractTransactionDe
 
 const ExtractTransactionDetailsOutputSchema = z.object({
   nazivSedistePrimaoca: z.string().describe('The name and address of the recipient.'),
-  iznosOdobrenja: z.number().describe('The amount of the transaction.'),
+  iznosOdobrenja: z.string().describe('The amount of the transaction.'),
   pozivNaBrojOdobrenja: z.string().describe('The reference number of the transaction.'),
   datumKnjizenja: z.string().describe('The date of the transaction in ISO format (YYYY-MM-DD).'),
 });
@@ -39,7 +39,7 @@ const extractTransactionDetailsPrompt = ai.definePrompt({
   output: {
     schema: z.object({
       nazivSedistePrimaoca: z.string().describe('The name and address of the recipient.'),
-      iznosOdobrenja: z.number().describe('The amount of the transaction.'),
+      iznosOdobrenja: z.string().describe('The amount of the transaction.'),
       pozivNaBrojOdobrenja: z.string().describe('The reference number of the transaction.'),
       datumKnjizenja: z.string().describe('The date of the transaction in ISO format (YYYY-MM-DD).'),
     }),
@@ -58,7 +58,10 @@ const extractTransactionDetailsPrompt = ai.definePrompt({
   - Datum knjiženja (Date of posting)
 
   Make sure to output the date in ISO format (YYYY-MM-DD).
-  If a field cannot be determined, return "unknown".`,
+  If a field cannot be determined, return "unknown".
+  If the Iznos odobrenja contains characters, remove them and leave only numbers.
+  If the Datum knjiženja contains characters, remove them and leave only numbers.
+  `,
 });
 
 const extractTransactionDetailsFlow = ai.defineFlow<
