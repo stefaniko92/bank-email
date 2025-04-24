@@ -104,10 +104,10 @@ export default function Home() {
           {paymentDetails && (
             <div className="mt-4">
               <h3>Payment Details:</h3>
-              <p>Transaction ID: {paymentDetails.transactionId || 'Unknown'}</p>
-              <p>Amount: {paymentDetails.amount || 'Unknown'}</p>
-              <p>Date: {paymentDetails.date || 'Unknown'}</p>
-              <p>Vendor: {paymentDetails.vendor || 'Unknown'}</p>
+              <p>Naziv i sedište primaoca: {paymentDetails.nazivSedistePrimaoca || 'Unknown'}</p>
+              <p>Iznos odobrenja: {paymentDetails.iznosOdobrenja || 'Unknown'}</p>
+              <p>Poziv na broj odobrenja: {paymentDetails.pozivNaBrojOdobrenja || 'Unknown'}</p>
+              <p>Datum knjiženja: {paymentDetails.datumKnjizenja || 'Unknown'}</p>
             </div>
           )}
         </section>

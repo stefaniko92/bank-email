@@ -1,4 +1,4 @@
-// 'use server';
+'use server';
 /**
  * @fileOverview Extracts transaction details from PDF content using AI.
  *
@@ -7,7 +7,6 @@
  * - ExtractTransactionDetailsOutput - The return type for the extractTransactionDetails function.
  */
 
-'use server';
 import {ai} from '@/ai/ai-instance';
 import {z} from 'genkit';
 
@@ -17,10 +16,10 @@ const ExtractTransactionDetailsInputSchema = z.object({
 export type ExtractTransactionDetailsInput = z.infer<typeof ExtractTransactionDetailsInputSchema>;
 
 const ExtractTransactionDetailsOutputSchema = z.object({
-  transactionId: z.string().describe('The unique identifier for the transaction.'),
-  amount: z.number().describe('The transaction amount.'),
-  date: z.string().describe('The transaction date in ISO format (YYYY-MM-DD).'),
-  vendor: z.string().describe('The name of the vendor involved in the transaction.'),
+  nazivSedistePrimaoca: z.string().describe('The name and address of the recipient.'),
+  iznosOdobrenja: z.number().describe('The amount of the transaction.'),
+  pozivNaBrojOdobrenja: z.string().describe('The reference number of the transaction.'),
+  datumKnjizenja: z.string().describe('The date of the transaction in ISO format (YYYY-MM-DD).'),
 });
 export type ExtractTransactionDetailsOutput = z.infer<typeof ExtractTransactionDetailsOutputSchema>;
 
@@ -39,10 +38,10 @@ const extractTransactionDetailsPrompt = ai.definePrompt({
   },
   output: {
     schema: z.object({
-      transactionId: z.string().describe('The unique identifier for the transaction.'),
-      amount: z.number().describe('The transaction amount.'),
-      date: z.string().describe('The transaction date in ISO format (YYYY-MM-DD).'),
-      vendor: z.string().describe('The name of the vendor involved in the transaction.'),
+      nazivSedistePrimaoca: z.string().describe('The name and address of the recipient.'),
+      iznosOdobrenja: z.number().describe('The amount of the transaction.'),
+      pozivNaBrojOdobrenja: z.string().describe('The reference number of the transaction.'),
+      datumKnjizenja: z.string().describe('The date of the transaction in ISO format (YYYY-MM-DD).'),
     }),
   },
   prompt: `You are an expert at extracting transaction details from text.
@@ -51,7 +50,14 @@ const extractTransactionDetailsPrompt = ai.definePrompt({
 
   Text: {{{pdfContent}}}
 
-  Make sure to output the transaction date in ISO format (YYYY-MM-DD).
+  Specifically, extract the following fields:
+
+  - Naziv i sedište primaoca / platioca (Name and address of the recipient / payer)
+  - Iznos odobrenja (Amount of approval)
+  - Poziv na broj odobrenja (Reference number of approval)
+  - Datum knjiženja (Date of posting)
+
+  Make sure to output the date in ISO format (YYYY-MM-DD).
   If a field cannot be determined, return "unknown".`,
 });
 
