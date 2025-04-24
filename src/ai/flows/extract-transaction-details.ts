@@ -44,7 +44,7 @@ const extractTransactionDetailsPrompt = ai.definePrompt({
       datumKnjizenja: z.string().describe('The date of the transaction in ISO format (YYYY-MM-DD).'),
     }),
   },
-  model: 'gpt-3.5-turbo',
+  model: 'gemini-1.5-pro',
   prompt: `You are an expert at extracting transaction details from text.
 
   Given the following text extracted from a PDF, extract the transaction details.
