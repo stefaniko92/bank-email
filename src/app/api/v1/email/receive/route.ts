@@ -20,24 +20,24 @@ async function forwardToWebhook(transactions: any[], emailData: any) {
   try {
     // Get webhook configuration
     const config = await getWebhookConfig();
-
+    
     if (!config.enabled || !config.url) {
       console.log(`Webhook forwarding disabled or URL not configured. URL: ${config.url}, Enabled: ${config.enabled}`);
       return null;
     }
 
     console.log(`Forwarding ${transactions.length} transactions to webhook: ${config.url}`);
-
+    
     const payload = {
-        transactions: transactions,
-        email: {
-          subject: emailData.subject || '',
-          from: emailData.from || '',
-          to: emailData.recipient || '', // Added recipient
-          timestamp: new Date().toISOString(),
-          messageId: emailData['Message-Id'] || 'unknown' // Added message ID
-        },
-      };
+      transactions: transactions,
+      email: {
+        subject: emailData.subject || '',
+        from: emailData.from || '',
+        to: emailData.recipient || '', // Added recipient
+        timestamp: new Date().toISOString(),
+        messageId: emailData['Message-Id'] || 'unknown' // Added message ID
+      },
+    };
 
     console.log("Webhook Payload:", JSON.stringify(payload, null, 2)); // Log the payload
 
@@ -51,7 +51,7 @@ async function forwardToWebhook(transactions: any[], emailData: any) {
     });
 
     if (!response.ok) {
-       const responseBody = await response.text();
+      const responseBody = await response.text();
       console.error(`Webhook error response body: ${responseBody}`);
       throw new Error(`Webhook responded with status: ${response.status}`);
     }
@@ -60,10 +60,10 @@ async function forwardToWebhook(transactions: any[], emailData: any) {
     let responseData;
     try {
       responseData = await response.json();
-       console.log('Webhook response JSON:', responseData);
+      console.log('Webhook response JSON:', responseData);
     } catch (jsonError) {
-       console.log('Webhook response was not JSON. Status:', response.status);
-       responseData = { status: response.status, message: 'Webhook acknowledged' }; // Or handle non-JSON response as needed
+      console.log('Webhook response was not JSON. Status:', response.status);
+      responseData = { status: response.status, message: 'Webhook acknowledged' };
     }
 
     return responseData;
@@ -76,7 +76,7 @@ async function forwardToWebhook(transactions: any[], emailData: any) {
 /**
  * Extract base64 encoded PDF content from email attachments
  */
-function extractBase64PdfContent(emailData: any): { content: string | null, filename: string | null } {
+async function extractBase64PdfContent(emailData: any): Promise<{ content: string | null, filename: string | null }> {
   try {
     // Check if we have attachments
     const attachmentCount = parseInt(emailData['attachment-count'] || '0');
@@ -95,25 +95,23 @@ function extractBase64PdfContent(emailData: any): { content: string | null, file
 
       // Check if the attachment data exists and is a File object (standard FormData)
       if (attachmentFile instanceof File) {
-         console.log(`Processing attachment ${i}: ${attachmentFile.name} (${attachmentFile.type})`);
-         if (attachmentFile.type === 'application/pdf' || attachmentFile.name.toLowerCase().endsWith('.pdf')) {
-            const buffer = await attachmentFile.arrayBuffer();
-            const content = Buffer.from(buffer).toString('base64');
-            console.log(`Found PDF attachment: ${attachmentFile.name}`);
-            return { content, filename: attachmentFile.name };
-         }
+        console.log(`Processing attachment ${i}: ${attachmentFile.name} (${attachmentFile.type})`);
+        if (attachmentFile.type === 'application/pdf' || attachmentFile.name.toLowerCase().endsWith('.pdf')) {
+          const buffer = await attachmentFile.arrayBuffer();
+          const content = Buffer.from(buffer).toString('base64');
+          console.log(`Found PDF attachment: ${attachmentFile.name}`);
+          return { content, filename: attachmentFile.name };
+        }
       } else {
         // Fallback for potentially different Mailgun structures or testing scenarios
-        // This part might need adjustment based on actual Mailgun payload structure if not using standard File objects
-        const contentType = emailData[`attachment-${i}-content-type`]; // Check specific content-type field if exists
-        const contentName = emailData[`attachment-${i}-name`]; // Check specific name field if exists
+        const contentType = emailData[`attachment-${i}-content-type`];
+        const contentName = emailData[`attachment-${i}-name`];
 
         if (contentType?.includes('application/pdf') || contentName?.toLowerCase().endsWith('.pdf')) {
-          // Mailgun sometimes provides content directly as base64 string in specific fields
-           const base64Content = emailData[`attachment-${i}-content`]; // Hypothetical field name
+          const base64Content = emailData[`attachment-${i}-content`];
           if (base64Content && typeof base64Content === 'string') {
-             console.log(`Found PDF attachment (fallback method): ${contentName || 'Unknown name'}`);
-             return { content: base64Content, filename: contentName || null };
+            console.log(`Found PDF attachment (fallback method): ${contentName || 'Unknown name'}`);
+            return { content: base64Content, filename: contentName || null };
           }
         }
       }
@@ -126,7 +124,6 @@ function extractBase64PdfContent(emailData: any): { content: string | null, file
     return { content: null, filename: null };
   }
 }
-
 
 export async function POST(request: Request) {
   let webhookResponse = null;
@@ -150,39 +147,39 @@ export async function POST(request: Request) {
       }
     }
 
-     // Extract basic email info for logging/response
-     emailSubject = data.subject || emailSubject;
-     emailFrom = data.from || emailFrom;
-     emailId = data['Message-Id'] || emailId;
-
-    // Log the received email data (consider logging less in production)
-    console.log("Received email data keys:", Object.keys(data));
-    await logEmail({ subject: emailSubject, from: emailFrom, messageId: emailId, timestamp: new Date().toISOString() }); // Log essentials
+    // Extract basic email info for logging/response
+    emailSubject = data.subject || emailSubject;
+    emailFrom = data.from || emailFrom;
+    emailId = data['Message-Id'] || emailId;
 
     // Log the received email data to Firebase
-    await logEmail(data);
+    await logEmail({
+      subject: emailSubject,
+      from: emailFrom,
+      messageId: emailId,
+      timestamp: new Date().toISOString(),
+      ...data // Include all email data
+    });
 
     // Check if the email contains PDF attachments
-    const { content: base64PdfContent, filename: pdfFilename } = extractBase64PdfContent(data);
+    const { content: base64PdfContent, filename: pdfFilename } = await extractBase64PdfContent(data);
 
     if (base64PdfContent) {
-       pdfProcessed = true;
+      pdfProcessed = true;
       console.log(`Processing PDF: ${pdfFilename || 'Unknown filename'}`);
       try {
         // Convert base64 to array buffer
         const pdfBuffer = Buffer.from(base64PdfContent, 'base64');
-
+        
         // Extract text from PDF
         const extractedText = await extractTextFromPdf(pdfBuffer.buffer);
         console.log('Extracted text length:', extractedText?.length);
-        // console.log('Extracted text from PDF:', extractedText); // Optionally log full text for debug
 
         if (extractedText && extractedText.trim().length > 0) {
           // Extract transaction details using AI
-           console.log("Calling AI to extract transaction details...");
+          console.log("Calling AI to extract transaction details...");
           const result = await extractAllTransactionDetails({ pdfContent: extractedText });
-           console.log(`AI extraction result: ${result.transactions.length} transactions found.`);
-           // console.log("Extracted transactions:", JSON.stringify(result.transactions, null, 2)); // Log details for debug
+          console.log(`AI extraction result: ${result.transactions.length} transactions found.`);
 
           // Store extracted transactions
           extractedTransactions = result.transactions;
@@ -191,9 +188,10 @@ export async function POST(request: Request) {
           for (const transaction of result.transactions) {
             await logTransaction({
               ...transaction,
-              emailId: data['Message-Id'] || 'unknown',
-              emailSubject: data.subject || 'No subject',
-              emailFrom: data.from || 'unknown'
+              emailId: emailId,
+              emailSubject: emailSubject,
+              emailFrom: emailFrom,
+              pdfFilename: pdfFilename
             });
           }
           
@@ -202,19 +200,19 @@ export async function POST(request: Request) {
             webhookResponse = await forwardToWebhook(result.transactions, data);
           }
         } else {
-           console.log("PDF text extraction resulted in empty or whitespace content.");
+          console.log("PDF text extraction resulted in empty or whitespace content.");
         }
       } catch (pdfError) {
         console.error('Error processing PDF or calling AI:', pdfError);
-         errorOccurred = true;
-         errorMessage = pdfError instanceof Error ? pdfError.message : String(pdfError);
+        errorOccurred = true;
+        errorMessage = pdfError instanceof Error ? pdfError.message : String(pdfError);
       }
     } else {
-       console.log("No processable PDF found in the email.");
+      console.log("No processable PDF found in the email.");
     }
 
     // Determine final status code based on whether critical errors occurred
-    const status = errorOccurred && !webhookResponse ? 500 : 200; // Return 500 only if PDF processing/AI failed AND webhook wasn't attempted/failed
+    const status = errorOccurred && !webhookResponse ? 500 : 200;
 
     return NextResponse.json({
       received: true,
@@ -225,9 +223,9 @@ export async function POST(request: Request) {
         pdfProcessed: pdfProcessed,
         transactionsExtracted: extractedTransactions.length,
         webhookForwarded: !!webhookResponse && !webhookResponse.error,
-        webhookResponse: webhookResponse // Include webhook response/error for transparency
+        webhookResponse: webhookResponse
       },
-       ...(status === 500 && { error: errorMessage }) // Include error message in response body if status is 500
+      ...(status === 500 && { error: errorMessage })
     }, { status });
 
   } catch (error) {
