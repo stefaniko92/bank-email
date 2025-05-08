@@ -1,11 +1,9 @@
 'use server';
 
 import {NextResponse} from 'next/server';
-import {logEmail} from '@/services/email-logger';
+import {logEmail, logTransaction, getWebhookConfig} from '@/lib/firebase';
 import {extractAllTransactionDetails} from '@/ai/flows/extract-transaction-details';
 import {extractTextFromPdf} from '@/lib/pdf-utils';
-import fs from 'fs/promises';
-import path from 'path';
 
 /**
  * @fileOverview Receives email data from Mailgun via POST request, extracts transaction details from PDFs, and forwards to a configured webhook (source app).
@@ -14,49 +12,6 @@ import path from 'path';
  * It extracts any transaction details from PDF attachments and forwards them to a configured webhook.
  * It logs the received data and returns a JSON response indicating success or failure.
  */
-
-// Configuration file path
-const CONFIG_FILE_PATH = path.join(process.cwd(), 'webhook-config.json');
-
-/**
- * Gets the current webhook configuration
- */
-async function getWebhookConfig() {
-  try {
-    const fileExists = await fs.access(CONFIG_FILE_PATH).then(() => true).catch(() => false);
-
-    if (!fileExists) {
-      // Use environment variable as fallback if config file doesn't exist
-      const envUrl = process.env.WEBHOOK_URL || process.env.SOURCE_APP_WEBHOOK_URL || '';
-      console.log(`Webhook config file not found. Using URL from environment: ${envUrl || 'Not Set'}`);
-      return {
-        url: envUrl,
-        enabled: !!envUrl, // Enable only if URL is set
-        lastUpdated: new Date().toISOString()
-      };
-    }
-
-    const configData = await fs.readFile(CONFIG_FILE_PATH, 'utf-8');
-    const config = JSON.parse(configData);
-    // Ensure URL from env var is considered if file has no URL
-    if (!config.url) {
-       config.url = process.env.WEBHOOK_URL || process.env.SOURCE_APP_WEBHOOK_URL || '';
-       config.enabled = config.enabled && !!config.url; // Keep enabled state from file, but disable if no URL
-    }
-     console.log(`Webhook config loaded: URL=${config.url}, Enabled=${config.enabled}`);
-    return config;
-  } catch (error) {
-    console.error('Error reading webhook config:', error);
-    // Fallback to environment variable on error
-     const envUrl = process.env.WEBHOOK_URL || process.env.SOURCE_APP_WEBHOOK_URL || '';
-     console.log(`Error reading config file. Using URL from environment: ${envUrl || 'Not Set'}`);
-    return {
-      url: envUrl,
-      enabled: !!envUrl,
-      lastUpdated: new Date().toISOString()
-    };
-  }
-}
 
 /**
  * Forwards transaction data to the configured external webhook (source app)
@@ -204,6 +159,8 @@ export async function POST(request: Request) {
     console.log("Received email data keys:", Object.keys(data));
     await logEmail({ subject: emailSubject, from: emailFrom, messageId: emailId, timestamp: new Date().toISOString() }); // Log essentials
 
+    // Log the received email data to Firebase
+    await logEmail(data);
 
     // Check if the email contains PDF attachments
     const { content: base64PdfContent, filename: pdfFilename } = extractBase64PdfContent(data);
@@ -228,19 +185,21 @@ export async function POST(request: Request) {
            // console.log("Extracted transactions:", JSON.stringify(result.transactions, null, 2)); // Log details for debug
 
           // Store extracted transactions
-          extractedTransactions = result.transactions || [];
-
-          // Forward transactions to webhook if any were extracted
-          if (extractedTransactions.length > 0) {
-            webhookResponse = await forwardToWebhook(extractedTransactions, data);
-             if (webhookResponse?.error) {
-                // Log webhook forwarding errors but don't fail the whole request
-                console.error(`Webhook forwarding failed: ${webhookResponse.error}`);
-                errorOccurred = true; // Mark that an error occurred during forwarding
-                errorMessage = `Webhook forwarding failed: ${webhookResponse.error}`;
-             }
-          } else {
-             console.log("No transactions extracted by AI, nothing to forward.");
+          extractedTransactions = result.transactions;
+          
+          // Log transactions to Firebase
+          for (const transaction of result.transactions) {
+            await logTransaction({
+              ...transaction,
+              emailId: data['Message-Id'] || 'unknown',
+              emailSubject: data.subject || 'No subject',
+              emailFrom: data.from || 'unknown'
+            });
+          }
+          
+          // Forward transactions to webhook if there are any
+          if (result.transactions && result.transactions.length > 0) {
+            webhookResponse = await forwardToWebhook(result.transactions, data);
           }
         } else {
            console.log("PDF text extraction resulted in empty or whitespace content.");

@@ -1,63 +1,7 @@
 'use server';
 
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs/promises';
-import path from 'path';
-
-// Configuration file path
-const CONFIG_FILE_PATH = path.join(process.cwd(), 'webhook-config.json');
-
-/**
- * Gets the current webhook configuration
- * In a production environment, this should use a more robust storage mechanism
- */
-async function getWebhookConfig() {
-  try {
-    const fileExists = await fs.access(CONFIG_FILE_PATH).then(() => true).catch(() => false);
-    
-    if (!fileExists) {
-      // Create default config if file doesn't exist
-      const defaultConfig = { 
-        url: process.env.WEBHOOK_URL || '', 
-        enabled: true,
-        lastUpdated: new Date().toISOString()
-      };
-      await fs.writeFile(CONFIG_FILE_PATH, JSON.stringify(defaultConfig, null, 2));
-      return defaultConfig;
-    }
-    
-    const configData = await fs.readFile(CONFIG_FILE_PATH, 'utf-8');
-    return JSON.parse(configData);
-  } catch (error) {
-    console.error('Error reading webhook config:', error);
-    return { 
-      url: process.env.WEBHOOK_URL || '', 
-      enabled: true,
-      lastUpdated: new Date().toISOString()
-    };
-  }
-}
-
-/**
- * Updates the webhook configuration
- */
-async function updateWebhookConfig(config: any) {
-  try {
-    // Merge with existing config
-    const existingConfig = await getWebhookConfig();
-    const updatedConfig = {
-      ...existingConfig,
-      ...config,
-      lastUpdated: new Date().toISOString()
-    };
-    
-    await fs.writeFile(CONFIG_FILE_PATH, JSON.stringify(updatedConfig, null, 2));
-    return updatedConfig;
-  } catch (error) {
-    console.error('Error updating webhook config:', error);
-    throw error;
-  }
-}
+import { getWebhookConfig, updateWebhookConfig } from '@/lib/firebase';
 
 // GET endpoint to retrieve webhook configuration
 export async function GET() {
