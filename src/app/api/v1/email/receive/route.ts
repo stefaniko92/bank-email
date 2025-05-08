@@ -1,11 +1,9 @@
 'use server';
 
 import {NextResponse} from 'next/server';
-import {logEmail} from '@/services/email-logger';
+import {logEmail, logTransaction, getWebhookConfig} from '@/lib/firebase';
 import {extractAllTransactionDetails} from '@/ai/flows/extract-transaction-details';
 import {extractTextFromPdf} from '@/lib/pdf-utils';
-import fs from 'fs/promises';
-import path from 'path';
 
 /**
  * @fileOverview Receives email data from Mailgun via POST request, extracts transaction details from PDFs, and forwards to a webhook.
@@ -14,34 +12,6 @@ import path from 'path';
  * It extracts any transaction details from PDF attachments and forwards them to a configured webhook.
  * It logs the received data and returns a JSON response indicating success or failure.
  */
-
-// Configuration file path
-const CONFIG_FILE_PATH = path.join(process.cwd(), 'webhook-config.json');
-
-/**
- * Gets the current webhook configuration
- */
-async function getWebhookConfig() {
-  try {
-    const fileExists = await fs.access(CONFIG_FILE_PATH).then(() => true).catch(() => false);
-    
-    if (!fileExists) {
-      return { 
-        url: process.env.WEBHOOK_URL || '', 
-        enabled: true
-      };
-    }
-    
-    const configData = await fs.readFile(CONFIG_FILE_PATH, 'utf-8');
-    return JSON.parse(configData);
-  } catch (error) {
-    console.error('Error reading webhook config:', error);
-    return { 
-      url: process.env.WEBHOOK_URL || '', 
-      enabled: true
-    };
-  }
-}
 
 /**
  * Forwards transaction data to an external webhook
@@ -129,7 +99,7 @@ export async function POST(request: Request) {
       data[key] = value;
     }
 
-    // Log the received email data
+    // Log the received email data to Firebase
     await logEmail(data);
 
     // Check if the email contains PDF attachments
@@ -153,6 +123,16 @@ export async function POST(request: Request) {
           
           // Store extracted transactions
           extractedTransactions = result.transactions;
+          
+          // Log transactions to Firebase
+          for (const transaction of result.transactions) {
+            await logTransaction({
+              ...transaction,
+              emailId: data['Message-Id'] || 'unknown',
+              emailSubject: data.subject || 'No subject',
+              emailFrom: data.from || 'unknown'
+            });
+          }
           
           // Forward transactions to webhook if there are any
           if (result.transactions && result.transactions.length > 0) {
