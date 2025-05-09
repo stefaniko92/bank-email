@@ -5,8 +5,17 @@ import {getLoggedEmails, clearLoggedEmails} from '@/services/email-logger';
 import {Button} from '@/components/ui/button';
 import {Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow} from '@/components/ui/table';
 
+interface LoggedEmail {
+  id: string;
+  subject: string;
+  from: string;
+  to: string;
+  timestamp: string;
+  messageId: string;
+}
+
 export default function LogsPage() {
-  const [emails, setEmails] = useState([]);
+  const [emails, setEmails] = useState<LoggedEmail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,8 +64,8 @@ export default function LogsPage() {
           {emails.map((email, index) => (
             <TableRow key={index}>
               <TableCell>{new Date(email.timestamp).toLocaleString()}</TableCell>
-              <TableCell>{email.data.from}</TableCell>
-              <TableCell>{email.data.subject}</TableCell>
+              <TableCell>{email.from}</TableCell>
+              <TableCell>{email.subject}</TableCell>
               {/* Add more cells as needed */}
             </TableRow>
           ))}

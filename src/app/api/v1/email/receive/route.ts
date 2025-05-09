@@ -21,8 +21,8 @@ async function forwardToWebhook(transactions: any[], emailData: any) {
     // Get webhook configuration
     const config = await getWebhookConfig();
     
-    if (!config.enabled || !config.url) {
-      console.log(`Webhook forwarding disabled or URL not configured. URL: ${config.url}, Enabled: ${config.enabled}`);
+    if (!config?.enabled || !config?.url) {
+      console.log(`Webhook forwarding disabled or URL not configured. URL: ${config?.url}, Enabled: ${config?.enabled}`);
       return null;
     }
 

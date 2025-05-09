@@ -1,36 +1,51 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
-// Your Firebase configuration
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
-};
+// Initialize Firebase Admin for server-side
+function initializeFirebaseAdmin() {
+  if (getApps().length === 0) {
+    // Check if we have the required environment variables
+    if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
+      throw new Error('Missing required Firebase environment variables. Please check your .env.local file.');
+    }
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+    return initializeApp({
+      credential: cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        // The private key needs to be properly formatted
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      }),
+      databaseURL: `https://${process.env.FIREBASE_PROJECT_ID}.firebaseio.com`
+    });
+  }
+  return getApps()[0];
+}
+
+// Initialize Firebase Admin
+const app = initializeFirebaseAdmin();
 const db = getFirestore(app);
 
 // Webhook configuration
 export async function getWebhookConfig() {
   try {
-    const configRef = doc(db, 'config', 'webhook');
-    const configDoc = await getDoc(configRef);
+    const configRef = db.collection('config').doc('webhook');
+    const configDoc = await configRef.get();
     
-    if (configDoc.exists()) {
+    if (configDoc.exists) {
       return configDoc.data();
     }
     
     // Return default config if none exists
-    return {
+    const defaultConfig = {
       url: process.env.WEBHOOK_URL || '',
       enabled: true,
       lastUpdated: new Date().toISOString()
     };
+
+    // Create default config if it doesn't exist
+    await configRef.set(defaultConfig);
+    return defaultConfig;
   } catch (error) {
     console.error('Error getting webhook config:', error);
     throw error;
@@ -39,10 +54,10 @@ export async function getWebhookConfig() {
 
 export async function updateWebhookConfig(config: any) {
   try {
-    const configRef = doc(db, 'config', 'webhook');
-    await setDoc(configRef, {
+    const configRef = db.collection('config').doc('webhook');
+    await configRef.set({
       ...config,
-      lastUpdated: serverTimestamp()
+      lastUpdated: new Date().toISOString()
     });
     return config;
   } catch (error) {
@@ -54,10 +69,10 @@ export async function updateWebhookConfig(config: any) {
 // Email logs
 export async function logEmail(emailData: any) {
   try {
-    const logsRef = collection(db, 'email_logs');
-    await addDoc(logsRef, {
+    const logsRef = db.collection('email_logs');
+    await logsRef.add({
       ...emailData,
-      timestamp: serverTimestamp()
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
     console.error('Error logging email:', error);
@@ -68,10 +83,10 @@ export async function logEmail(emailData: any) {
 // Transaction logs
 export async function logTransaction(transactionData: any) {
   try {
-    const logsRef = collection(db, 'transaction_logs');
-    await addDoc(logsRef, {
+    const logsRef = db.collection('transaction_logs');
+    await logsRef.add({
       ...transactionData,
-      timestamp: serverTimestamp()
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
     console.error('Error logging transaction:', error);
