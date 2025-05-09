@@ -12,12 +12,20 @@
     ],
     "rewrites": [
       {
+        "source": "/api/v1/email/receive",
+        "function": "emailReceive"
+      },
+      {
         "source": "/api/v1/webhook-config",
         "function": "webhookConfig"
       },
       {
         "source": "/api/v1/webhook-config/test",
         "function": "testWebhook"
+      },
+      {
+        "source": "/api/v1/google-credentials",
+        "function": "googleCredentials"
       },
       {
         "source": "**",

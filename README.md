@@ -6,8 +6,7 @@ This Next.js application receives and processes bank statements from email attac
 
 - Receives emails via webhook (e.g., from Mailgun).
 - Extracts PDF attachments from emails.
-- PDF processing and text extraction.
-- Gemini AI integration for transaction data extraction.
+- Direct PDF processing using Gemini AI's native PDF understanding capabilities.
 - Extracts key parameters for each payment (configurable in the AI flow).
 - Forwards extracted transaction data to a configurable webhook URL.
 - Provides a simple UI for testing PDF uploads and viewing logs/settings.
@@ -77,8 +76,7 @@ This Next.js application receives and processes bank statements from email attac
 
 -   **/src/app/api/v1/email/receive/route.ts**: API endpoint that receives emails from the email service (e.g., Mailgun).
 -   **/src/app/api/v1/webhook-config/route.ts**: API endpoint for managing the target webhook configuration.
--   **/src/ai/flows/extract-transaction-details.ts**: Genkit flow responsible for calling the AI model to extract data from PDF text.
--   **/src/lib/pdf-utils.ts**: Utilities for extracting text from PDF files.
+-   **/src/ai/flows/extract-transaction-details.ts**: Genkit flow responsible for calling the Gemini AI model to extract data directly from PDFs.
 -   **/src/services/email-logger.ts**: Simple in-memory logger for received emails (for debugging/viewing in UI).
 -   **/src/app/page.tsx**: Simple UI for manual PDF upload and testing extraction.
 -   **/src/app/settings/page.tsx**: UI for configuring the target webhook URL.
@@ -91,7 +89,7 @@ This Next.js application receives and processes bank statements from email attac
     *   Check Mailgun logs for delivery errors to your `/api/v1/email/receive` endpoint.
     *   Ensure your application is running and accessible at the configured URL.
 -   **PDFs not processed / No transactions extracted:**
-    *   Check application logs for errors during PDF parsing or AI calls.
+    *   Check application logs for errors during PDF processing or AI calls.
     *   Verify the `GOOGLE_API_KEY` is correct and has access to the necessary Gemini models.
     *   Ensure the PDF attachment is not corrupted and contains readable text.
     *   Adjust the prompt in `extract-transaction-details.ts` if the AI consistently fails to extract data for your specific bank statement format.
@@ -106,8 +104,6 @@ This Next.js application receives and processes bank statements from email attac
 
 ## Development
 
--   **Test PDF Extraction:** Use the manual upload feature on the home page (`/`) to test PDF parsing and AI extraction without needing email setup.
--   **Test Webhook Endpoint:** Use the "Test Webhook" button on the `/settings` page.
--   **Modify AI Prompt:** Adjust the prompt in `/src/ai/flows/extract-transaction-details.ts` to better suit different bank statement formats if needed.
+-   **Test PDF Extraction:** Use the manual upload feature on the home page (`/`) to test PDF processing and AI extraction without needing email setup.
 
     

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase-admin';
 
-// GET endpoint to retrieve webhook configuration
 export async function GET() {
   try {
     const configRef = db.collection('config').doc('webhook');
@@ -24,7 +23,6 @@ export async function GET() {
   }
 }
 
-// POST endpoint to update webhook configuration
 export async function POST(request: NextRequest) {
   try {
     const data = await request.json();
@@ -44,43 +42,15 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Update configuration
     const configRef = db.collection('config').doc('webhook');
+    
+    // Update configuration
     await configRef.set({
       url: data.url,
       enabled: data.enabled,
       lastUpdated: new Date().toISOString()
-    }, { merge: true }); // Use merge to only update specified fields
+    }, { merge: true });
     
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Error updating webhook config:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
-  }
-}
-
-// Test endpoint to verify webhook is working
-export async function PUT(request: NextRequest) {
-  try {
-    const config = await request.json();
-    
-    if (!config.url) {
-      return NextResponse.json(
-        { error: 'Webhook URL is required' },
-        { status: 400 }
-      );
-    }
-
-    // Update webhook configuration
-    const configRef = db.collection('config').doc('webhook');
-    await configRef.set({
-      ...config,
-      lastUpdated: new Date().toISOString()
-    });
-
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error updating webhook config:', error);
