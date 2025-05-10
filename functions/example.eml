@@ -1,0 +1,30 @@
+From: Sender <sender@example.com>
+To: Receiver <receiver@example.com>
+Subject: Test Email with PDF Attachment
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="boundary-example"
+
+--boundary-example
+Content-Type: text/plain; charset="UTF-8"
+
+Hello, this is a test email with an embedded PDF.
+
+--boundary-example
+Content-Type: application/pdf; name="test.pdf"
+Content-Disposition: attachment; filename="test.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJeLjz9MKMSAwIG9iago8PC9UeXBlIC9DYXRhbG9nL1BhZ2VzIDIgMCBS
+Pj4KZW5kb2JqCjIgMCBvYmoKPDwvVHlwZSAvUGFnZXMvQ291bnQgMS9LaWRzIFsgMyAw
+IFIgXTw8L0xlbmd0aCAxMDc+PnN0cmVhbQpCVAogICBUZXN0IGRvY3VtZW50IC0gUERG
+IGNyZWF0ZWQgYnkgQ2hhdEdQVC4KRVQKZW5kc3RyZWFtCmVuZG9iagogMyAwIG9iago8
+PC9UeXBlIC9QYWdlL1BhcmVudCAyIDAgUi9NZWRpYUJveCBbMCAwIDYxMiA3OTJdL0Nv
+bnRlbnRzIDQgMCBSL1Jlc291cmNlcyA8PC9Gb250IDw8L0YwIDUgMCBSPj4+Pj4KZW5k
+b2JqCjQgMCBvYmoKPDwvTGVuZ3RoIDUzPj5zdHJlYW0KSGVsbG8gd29ybGQgaW4gUERG
+LgplbmRzdHJlYW0KZW5kb2JqCjUgMCBvYmoKPDwvVHlwZSAvRm9udC9TdWJ0eXBlIC9U
+eXBlMS9OYW1lIC9GMCAvQmFzZUZvbnQgL0hlbHZldGljYT4+CmVuZG9iagp4cmVmCjAg
+NgowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAxMDUgMDAwMDAgbiAKMDAwMDAwMDAx
+OCAwMDAwMCBuIAowMDAwMDAwMDczIDAwMDAwIG4gCjAwMDAwMDAyMDEgMDAwMDAgbiAK
+MDAwMDAwMDI1MCAwMDAwMCBuIAp0cmFpbGVyCjw8L1Jvb3QgMSAwIFIvSW5mbyA4IDAg
+Ui9TaXplIDY+PgpzdGFydHhyZWYKNjY5CiUlRU9GCg==
+--boundary-example--

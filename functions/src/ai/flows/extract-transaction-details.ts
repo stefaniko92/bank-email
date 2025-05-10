@@ -9,7 +9,6 @@
 import { genkit } from 'genkit';
 import { googleAI, gemini15Pro } from '@genkit-ai/googleai';
 import { z } from 'zod';
-import * as functions from 'firebase-functions';
 
 const TransactionSchema = z.object({
   nazivSedistePrimaoca: z.string(),
@@ -23,8 +22,15 @@ export type Transaction = z.infer<typeof TransactionSchema>;
 
 export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Transaction[]> {
   try {
+    const apiKey = process.env.GOOGLE_GENAI_API_KEY || (process.env as any).google?.genai_api_key;
+    if (!apiKey) {
+      throw new Error('Google Gemini API key not found in environment variables');
+    }
+
+    console.log('Initializing Gemini AI with API key:', apiKey.substring(0, 10) + '...');
+
     const ai = genkit({
-      plugins: [googleAI({ apiKey: functions.config().google.genai_api_key })],
+      plugins: [googleAI({ apiKey })],
       model: gemini15Pro
     });
 
@@ -57,13 +63,10 @@ export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Tran
     // Generate transaction details using AI with PDF input
     const { text: responseText } = await ai.generate({
       model: gemini15Pro,
-      prompt: [{
-        text: prompt
-      }, {
-        media: {
-          url: `data:application/pdf;base64,${base64Pdf}`
-        }
-      }],
+      prompt: [
+        { text: prompt },
+        { media: { url: `data:application/pdf;base64,${base64Pdf}` } }
+      ],
       config: {
         temperature: 0.1,
         topP: 0.1,
@@ -72,6 +75,9 @@ export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Tran
         responseMimeType: 'application/json'
       }
     });
+
+    // Log the raw Gemini response
+    console.log('Gemini raw response:', responseText);
 
     // Parse and validate the response
     try {
@@ -88,6 +94,9 @@ export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Tran
         }
         return result.data;
       });
+
+      // Log the parsed transactions
+      console.log('Parsed transactions:', JSON.stringify(transactions, null, 2));
 
       return transactions;
     } catch (error) {

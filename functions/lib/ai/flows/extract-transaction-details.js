@@ -6,45 +6,11 @@
  * - ExtractTransactionDetailsInput - The input type for the extractTransactionDetails function.
  * - ExtractTransactionDetailsOutput - The return type for the ExtractTransactionDetails function.
  */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.extractTransactionDetails = extractTransactionDetails;
 const genkit_1 = require("genkit");
 const googleai_1 = require("@genkit-ai/googleai");
 const zod_1 = require("zod");
-const functions = __importStar(require("firebase-functions"));
 const TransactionSchema = zod_1.z.object({
     nazivSedistePrimaoca: zod_1.z.string(),
     iznosOdobrenja: zod_1.z.string(),
@@ -54,8 +20,13 @@ const TransactionSchema = zod_1.z.object({
 });
 async function extractTransactionDetails(pdfBuffer) {
     try {
+        const apiKey = process.env.GOOGLE_GENAI_API_KEY || process.env.google?.genai_api_key;
+        if (!apiKey) {
+            throw new Error('Google Gemini API key not found in environment variables');
+        }
+        console.log('Initializing Gemini AI with API key:', apiKey.substring(0, 10) + '...');
         const ai = (0, genkit_1.genkit)({
-            plugins: [(0, googleai_1.googleAI)({ apiKey: functions.config().google.genai_api_key })],
+            plugins: [(0, googleai_1.googleAI)({ apiKey })],
             model: googleai_1.gemini15Pro
         });
         // Convert PDF buffer to base64
@@ -85,13 +56,10 @@ async function extractTransactionDetails(pdfBuffer) {
         // Generate transaction details using AI with PDF input
         const { text: responseText } = await ai.generate({
             model: googleai_1.gemini15Pro,
-            prompt: [{
-                    text: prompt
-                }, {
-                    media: {
-                        url: `data:application/pdf;base64,${base64Pdf}`
-                    }
-                }],
+            prompt: [
+                { text: prompt },
+                { media: { url: `data:application/pdf;base64,${base64Pdf}` } }
+            ],
             config: {
                 temperature: 0.1,
                 topP: 0.1,
@@ -100,6 +68,8 @@ async function extractTransactionDetails(pdfBuffer) {
                 responseMimeType: 'application/json'
             }
         });
+        // Log the raw Gemini response
+        console.log('Gemini raw response:', responseText);
         // Parse and validate the response
         try {
             const parsedResponse = JSON.parse(responseText);
@@ -114,6 +84,8 @@ async function extractTransactionDetails(pdfBuffer) {
                 }
                 return result.data;
             });
+            // Log the parsed transactions
+            console.log('Parsed transactions:', JSON.stringify(transactions, null, 2));
             return transactions;
         }
         catch (error) {
