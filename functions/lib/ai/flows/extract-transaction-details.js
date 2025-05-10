@@ -56,10 +56,13 @@ async function extractTransactionDetails(pdfBuffer) {
         // Generate transaction details using AI with PDF input
         const { text: responseText } = await ai.generate({
             model: googleai_1.gemini15Pro,
-            prompt: [
-                { text: prompt },
-                { media: { url: `data:application/pdf;base64,${base64Pdf}` } }
-            ],
+            prompt: [{
+                    text: prompt
+                }, {
+                    media: {
+                        url: `data:application/pdf;base64,${base64Pdf}`
+                    }
+                }],
             config: {
                 temperature: 0.1,
                 topP: 0.1,

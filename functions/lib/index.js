@@ -8,65 +8,10 @@ const https_1 = require("firebase-functions/v2/https");
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const axios_1 = __importDefault(require("axios"));
-const mailparser_1 = require("mailparser");
 const extract_transaction_details_1 = require("./ai/flows/extract-transaction-details");
+const multipart_form_1 = require("./utils/multipart-form");
 (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
-function extractFirstAddress(input) {
-    if (!input)
-        return '';
-    const addressObj = Array.isArray(input) ? input[0] : input;
-    return addressObj?.value?.[0]?.address || '';
-}
-async function parseMultipartForm(req) {
-    const fields = {};
-    const files = {};
-    const contentType = req.headers['content-type'];
-    const boundary = contentType.split('boundary=')[1];
-    const body = req.rawBody.toString('utf8');
-    const parts = body.split('--' + boundary);
-    for (const part of parts) {
-        if (part.trim() === '' || part.trim() === '--')
-            continue;
-        const [headers, ...contentArr] = part.split('\r\n\r\n');
-        const content = contentArr.join('\r\n\r\n');
-        const headerMatch = headers.match(/Content-Disposition: form-data; name="([^"]+)"(?:; filename="([^"]+)"\r\n)?/);
-        if (!headerMatch)
-            continue;
-        const [, name, filename] = headerMatch;
-        const fileContent = Buffer.from(content.slice(0, -2), 'utf8');
-        if (filename) {
-            files[name] = fileContent;
-            if (name === 'message' || filename.endsWith('.eml')) {
-                try {
-                    const email = await (0, mailparser_1.simpleParser)(fileContent);
-                    fields['subject'] = email.subject || '';
-                    fields['from'] = extractFirstAddress(email.from);
-                    fields['to'] = extractFirstAddress(email.to);
-                    fields['message-id'] = email.messageId || '';
-                    console.log(`📨 Parsed EML: subject="${fields['subject']}" from="${fields['from']}" to="${fields['to']}`);
-                    email.attachments?.forEach((att, idx) => {
-                        if (att.content) {
-                            files[`attachment_${idx}`] = att.content;
-                            console.log(`🗂️  Found inline attachment in .eml: attachment_${idx}, size: ${att.content.length}, filename: ${att.filename}`);
-                        }
-                    });
-                }
-                catch (err) {
-                    console.error('Error parsing .eml message:', err);
-                    files['rawMessage'] = fileContent;
-                }
-            }
-            else {
-                console.log(`📎 Received file: ${filename}, name: ${name}, size: ${fileContent.length}`);
-            }
-        }
-        else {
-            fields[name] = content.trim();
-        }
-    }
-    return { fields, files };
-}
 exports.emailReceive = (0, https_1.onRequest)({
     timeoutSeconds: 540,
     memory: '1GiB',
@@ -82,8 +27,13 @@ exports.emailReceive = (0, https_1.onRequest)({
             let parsedBody = {};
             let files = {};
             let transactions = [];
-            if (req.headers['content-type']?.includes('multipart/form-data')) {
-                ({ fields: parsedBody, files } = await parseMultipartForm(req));
+            if (req.headers['content-type']?.includes('multipart/form-data') && req.rawBody) {
+                const { fields, files: parsedFiles } = await (0, multipart_form_1.parseMultipartForm)(req);
+                parsedBody = fields;
+                files = Object.fromEntries(Object.entries(parsedFiles).map(([key, file]) => [key, file.buffer]));
+                for (const [k, v] of Object.entries(files)) {
+                    console.log(`📦 File ${k} buffer size: ${v.length}`);
+                }
             }
             else {
                 parsedBody = req.body;
@@ -94,7 +44,15 @@ exports.emailReceive = (0, https_1.onRequest)({
                 to: parsedBody.to || parsedBody.To || '',
                 'message-id': parsedBody['message-id'] || parsedBody['Message-Id'] || '',
                 body: parsedBody['body-plain'] || '',
-                attachments: parsedBody.attachments ? JSON.parse(parsedBody.attachments) : []
+                attachments: (() => {
+                    try {
+                        return parsedBody.attachments ? JSON.parse(parsedBody.attachments) : [];
+                    }
+                    catch (err) {
+                        console.warn('⚠️ Failed to parse attachments JSON:', parsedBody.attachments);
+                        return [];
+                    }
+                })()
             };
             console.log(`🔁 Checking for duplicate message ID: ${messageDetails['message-id']}`);
             const existing = await db.collection('emails')
@@ -134,21 +92,6 @@ exports.emailReceive = (0, https_1.onRequest)({
                             });
                             const buffer = Buffer.from(pdfResp.data);
                             console.log(`📄 Downloaded PDF size: ${buffer.length}`);
-                            await axios_1.default.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${process.env.GEMINI_API_KEY}`, {
-                                contents: [
-                                    {
-                                        parts: [
-                                            { text: 'Extract payment information and structure it into JSON format:' },
-                                            {
-                                                inlineData: {
-                                                    mimeType: 'application/pdf',
-                                                    data: buffer.toString('base64'),
-                                                },
-                                            },
-                                        ],
-                                    },
-                                ],
-                            });
                             const extracted = await (0, extract_transaction_details_1.extractTransactionDetails)(buffer);
                             console.log(`✅ Gemini fallback extracted ${extracted.length} items from ${attachment.name}`);
                             transactions.push(...extracted);

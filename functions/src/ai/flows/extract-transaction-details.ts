@@ -63,10 +63,13 @@ export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Tran
     // Generate transaction details using AI with PDF input
     const { text: responseText } = await ai.generate({
       model: gemini15Pro,
-      prompt: [
-        { text: prompt },
-        { media: { url: `data:application/pdf;base64,${base64Pdf}` } }
-      ],
+      prompt: [{
+        text: prompt
+      }, {
+        media: {
+          url: `data:application/pdf;base64,${base64Pdf}`
+        }
+      }],
       config: {
         temperature: 0.1,
         topP: 0.1,
@@ -97,7 +100,6 @@ export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Tran
 
       // Log the parsed transactions
       console.log('Parsed transactions:', JSON.stringify(transactions, null, 2));
-
       return transactions;
     } catch (error) {
       console.error('Error parsing AI response:', error);
