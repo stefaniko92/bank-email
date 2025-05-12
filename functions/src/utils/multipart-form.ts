@@ -1,4 +1,4 @@
-import { Request } from 'firebase-functions/lib/common/providers/https';
+import type { Request } from 'express';
 import { IncomingForm, Fields, Files } from 'formidable';
 import fs from 'fs';
 import { Readable } from 'stream';
@@ -22,7 +22,7 @@ export async function parseMultipartForm(request: Request): Promise<ParsedForm> 
     const form = new IncomingForm({ keepExtensions: true, multiples: true });
 
     const stream = new Readable();
-    stream.push(request.rawBody);
+    stream.push((request as any).rawBody);
     stream.push(null);
     (stream as any).headers = request.headers;
 
@@ -42,10 +42,10 @@ export async function parseMultipartForm(request: Request): Promise<ParsedForm> 
               buffer,
               mimetype: typeof file.mimetype === 'string' ? file.mimetype : 'application/octet-stream',
               filename: typeof file.originalFilename === 'string'
-                ? file.originalFilename
-                : typeof file.newFilename === 'string'
-                ? file.newFilename
-                : 'unknown'
+                  ? file.originalFilename
+                  : typeof file.newFilename === 'string'
+                      ? file.newFilename
+                      : 'unknown'
             };
           } catch (readErr) {
             console.error(`❌ Failed to read file ${key} from disk:`, readErr);

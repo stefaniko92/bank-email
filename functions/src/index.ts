@@ -2,8 +2,8 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import axios from 'axios';
-import { extractTransactionDetails } from './ai/flows/extract-transaction-details';
 import { parseMultipartForm } from './utils/multipart-form';
+import { extractTransactionDetails } from './ai/flows/extract-transaction-details';
 
 initializeApp();
 const db = getFirestore();
@@ -54,17 +54,6 @@ export const emailReceive = onRequest({
         })()
       };
 
-      console.log(`🔁 Checking for duplicate message ID: ${messageDetails['message-id']}`);
-      const existing = await db.collection('emails')
-        .where('messageId', '==', messageDetails['message-id'])
-        .limit(1)
-        .get();
-
-      if (!existing.empty) {
-        console.log(`⚠️ Duplicate message-id detected: ${messageDetails['message-id']}, skipping.`);
-        return;
-      }
-
       console.log(`📨 Subject: ${messageDetails.subject}`);
       console.log(`📧 From: ${messageDetails.from}`);
       console.log(`📎 Attachments in metadata: ${messageDetails.attachments.length}`);
@@ -73,36 +62,12 @@ export const emailReceive = onRequest({
       for (const [key, buffer] of Object.entries(files)) {
         if (key.toLowerCase().endsWith('.pdf') || key.startsWith('attachment')) {
           try {
-            console.log(`🧠 Running Gemini extractTransactionDetails on: ${key}, size: ${buffer.length}`);
+            console.log(`🧠 Running OpenAI extractTransactionDetails on: ${key}, size: ${buffer.length}`);
             const result = await extractTransactionDetails(buffer);
-            console.log(`📦 Raw Gemini result for ${key}:`, JSON.stringify(result, null, 2));
-            console.log(`✅ Gemini extractTransactionDetails result for ${key}:`, JSON.stringify(result));
+            console.log(`✅ OpenAI extractTransactionDetails result for ${key}:`, JSON.stringify(result));
             transactions.push(...result);
           } catch (err: any) {
-            console.error(`Gemini processing error for ${key}:`, err);
-          }
-        }
-      }
-
-      if (transactions.length === 0 && messageDetails.attachments?.length) {
-        for (const attachment of messageDetails.attachments) {
-          if (attachment['content-type'] === 'application/pdf' && attachment.url) {
-            try {
-              console.log(`🌐 Downloading PDF from Mailgun: ${attachment.url}`);
-              const pdfResp = await axios.get(attachment.url, {
-                responseType: 'arraybuffer',
-                auth: { username: 'api', password: process.env.MAILGUN_API_KEY || '' },
-              });
-
-              const buffer = Buffer.from(pdfResp.data);
-              console.log(`📄 Downloaded PDF size: ${buffer.length}`);
-
-              const extracted = await extractTransactionDetails(buffer);
-              console.log(`✅ Gemini fallback extracted ${extracted.length} items from ${attachment.name}`);
-              transactions.push(...extracted);
-            } catch (err) {
-              console.error(`Gemini fallback error for ${attachment.name}:`, err);
-            }
+            console.error(`OpenAI processing error for ${key}:`, err);
           }
         }
       }
@@ -134,6 +99,8 @@ export const emailReceive = onRequest({
 
       const configSnap = await db.collection('config').where('type', '==', 'webhook').get();
       const webhookConfig = configSnap.empty ? null : configSnap.docs[0].data();
+
+      console.log('🔍 Webhook config:', webhookConfig);
 
       if (webhookConfig?.url && webhookConfig?.enabled) {
         try {

@@ -8,8 +8,8 @@ const https_1 = require("firebase-functions/v2/https");
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const axios_1 = __importDefault(require("axios"));
-const extract_transaction_details_1 = require("./ai/flows/extract-transaction-details");
 const multipart_form_1 = require("./utils/multipart-form");
+const extract_transaction_details_1 = require("./ai/flows/extract-transaction-details");
 (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
 exports.emailReceive = (0, https_1.onRequest)({
@@ -54,15 +54,6 @@ exports.emailReceive = (0, https_1.onRequest)({
                     }
                 })()
             };
-            console.log(`🔁 Checking for duplicate message ID: ${messageDetails['message-id']}`);
-            const existing = await db.collection('emails')
-                .where('messageId', '==', messageDetails['message-id'])
-                .limit(1)
-                .get();
-            if (!existing.empty) {
-                console.log(`⚠️ Duplicate message-id detected: ${messageDetails['message-id']}, skipping.`);
-                return;
-            }
             console.log(`📨 Subject: ${messageDetails.subject}`);
             console.log(`📧 From: ${messageDetails.from}`);
             console.log(`📎 Attachments in metadata: ${messageDetails.attachments.length}`);
@@ -70,35 +61,13 @@ exports.emailReceive = (0, https_1.onRequest)({
             for (const [key, buffer] of Object.entries(files)) {
                 if (key.toLowerCase().endsWith('.pdf') || key.startsWith('attachment')) {
                     try {
-                        console.log(`🧠 Running Gemini extractTransactionDetails on: ${key}, size: ${buffer.length}`);
+                        console.log(`🧠 Running OpenAI extractTransactionDetails on: ${key}, size: ${buffer.length}`);
                         const result = await (0, extract_transaction_details_1.extractTransactionDetails)(buffer);
-                        console.log(`📦 Raw Gemini result for ${key}:`, JSON.stringify(result, null, 2));
-                        console.log(`✅ Gemini extractTransactionDetails result for ${key}:`, JSON.stringify(result));
+                        console.log(`✅ OpenAI extractTransactionDetails result for ${key}:`, JSON.stringify(result));
                         transactions.push(...result);
                     }
                     catch (err) {
-                        console.error(`Gemini processing error for ${key}:`, err);
-                    }
-                }
-            }
-            if (transactions.length === 0 && messageDetails.attachments?.length) {
-                for (const attachment of messageDetails.attachments) {
-                    if (attachment['content-type'] === 'application/pdf' && attachment.url) {
-                        try {
-                            console.log(`🌐 Downloading PDF from Mailgun: ${attachment.url}`);
-                            const pdfResp = await axios_1.default.get(attachment.url, {
-                                responseType: 'arraybuffer',
-                                auth: { username: 'api', password: process.env.MAILGUN_API_KEY || '' },
-                            });
-                            const buffer = Buffer.from(pdfResp.data);
-                            console.log(`📄 Downloaded PDF size: ${buffer.length}`);
-                            const extracted = await (0, extract_transaction_details_1.extractTransactionDetails)(buffer);
-                            console.log(`✅ Gemini fallback extracted ${extracted.length} items from ${attachment.name}`);
-                            transactions.push(...extracted);
-                        }
-                        catch (err) {
-                            console.error(`Gemini fallback error for ${attachment.name}:`, err);
-                        }
+                        console.error(`OpenAI processing error for ${key}:`, err);
                     }
                 }
             }
@@ -126,6 +95,7 @@ exports.emailReceive = (0, https_1.onRequest)({
             await db.collection('emails').doc(messageDetails['message-id']).set(emailData);
             const configSnap = await db.collection('config').where('type', '==', 'webhook').get();
             const webhookConfig = configSnap.empty ? null : configSnap.docs[0].data();
+            console.log('🔍 Webhook config:', webhookConfig);
             if (webhookConfig?.url && webhookConfig?.enabled) {
                 try {
                     console.log(`🚀 Sending data to external webhook: ${webhookConfig.url}`);
