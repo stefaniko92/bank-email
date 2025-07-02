@@ -35,6 +35,7 @@
   },
   "functions": {
     "source": "functions",
-    "runtime": "nodejs22"
+    "runtime": "nodejs22",
+    "region": "europe-west3"
   }
 } 

@@ -12,13 +12,47 @@ const multipart_form_1 = require("./utils/multipart-form");
 const extract_transaction_details_1 = require("./ai/flows/extract-transaction-details");
 (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
+let webhookConfigCache = null;
+let lastConfigFetch = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// Helper function to retry Firestore operations
+async function retryOperation(operation, maxRetries = 3) {
+    let lastError;
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await operation();
+        }
+        catch (error) {
+            lastError = error;
+            if (error.code === 4) { // DEADLINE_EXCEEDED
+                console.warn(`Retry ${i + 1}/${maxRetries} due to timeout`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Exponential backoff
+                continue;
+            }
+            throw error;
+        }
+    }
+    throw lastError;
+}
+async function getWebhookConfig() {
+    const now = Date.now();
+    if (webhookConfigCache && (now - lastConfigFetch) < CACHE_TTL) {
+        return webhookConfigCache;
+    }
+    const configSnap = await retryOperation(() => db.collection('config').where('type', '==', 'webhook').get());
+    webhookConfigCache = configSnap.empty ? null : configSnap.docs[0].data();
+    lastConfigFetch = now;
+    return webhookConfigCache;
+}
 exports.emailReceive = (0, https_1.onRequest)({
     timeoutSeconds: 540,
     memory: '1GiB',
     region: 'us-central1',
     concurrency: 80,
     cors: true,
-    invoker: 'public'
+    invoker: 'public',
+    minInstances: 1,
+    maxInstances: 10
 }, async (req, res) => {
     res.status(200).json({ success: true, message: 'Webhook received' });
     process.nextTick(async () => {
@@ -28,15 +62,19 @@ exports.emailReceive = (0, https_1.onRequest)({
             let files = {};
             let transactions = [];
             if (req.headers['content-type']?.includes('multipart/form-data') && req.rawBody) {
+                console.log('📧 Processing multipart form data...');
                 const { fields, files: parsedFiles } = await (0, multipart_form_1.parseMultipartForm)(req);
                 parsedBody = fields;
                 files = Object.fromEntries(Object.entries(parsedFiles).map(([key, file]) => [key, file.buffer]));
+                console.log('📧 Parsed form fields:', JSON.stringify(parsedBody, null, 2));
                 for (const [k, v] of Object.entries(files)) {
                     console.log(`📦 File ${k} buffer size: ${v.length}`);
                 }
             }
             else {
+                console.log('📧 Processing regular request body...');
                 parsedBody = req.body;
+                console.log('📧 Request body:', JSON.stringify(parsedBody, null, 2));
             }
             const messageDetails = {
                 subject: parsedBody.subject || parsedBody.Subject || '',
@@ -54,10 +92,14 @@ exports.emailReceive = (0, https_1.onRequest)({
                     }
                 })()
             };
-            console.log(`📨 Subject: ${messageDetails.subject}`);
-            console.log(`📧 From: ${messageDetails.from}`);
-            console.log(`📎 Attachments in metadata: ${messageDetails.attachments.length}`);
-            console.log(`📁 Files parsed: ${Object.keys(files).join(', ')}`);
+            console.log('📧 Email Details:');
+            console.log('  Subject:', messageDetails.subject);
+            console.log('  From:', messageDetails.from);
+            console.log('  To:', messageDetails.to);
+            console.log('  Message ID:', messageDetails['message-id']);
+            console.log('  Body:', messageDetails.body);
+            console.log('  Attachments:', JSON.stringify(messageDetails.attachments, null, 2));
+            console.log('  Files parsed:', Object.keys(files).join(', '));
             for (const [key, buffer] of Object.entries(files)) {
                 if (key.toLowerCase().endsWith('.pdf') || key.startsWith('attachment')) {
                     try {
@@ -92,9 +134,10 @@ exports.emailReceive = (0, https_1.onRequest)({
                 return;
             }
             console.log('📝 Storing email metadata to Firestore');
-            await db.collection('emails').doc(messageDetails['message-id']).set(emailData);
-            const configSnap = await db.collection('config').where('type', '==', 'webhook').get();
-            const webhookConfig = configSnap.empty ? null : configSnap.docs[0].data();
+            const batch = db.batch();
+            batch.set(db.collection('emails').doc(messageDetails['message-id']), emailData);
+            await batch.commit();
+            const webhookConfig = await getWebhookConfig();
             console.log('🔍 Webhook config:', webhookConfig);
             if (webhookConfig?.url && webhookConfig?.enabled) {
                 try {
@@ -130,6 +173,12 @@ exports.emailReceive = (0, https_1.onRequest)({
         }
         catch (err) {
             console.error('Fatal async error:', err);
+            if (err.code) {
+                console.error('Error code:', err.code);
+            }
+            if (err.details) {
+                console.error('Error details:', err.details);
+            }
         }
     });
 });

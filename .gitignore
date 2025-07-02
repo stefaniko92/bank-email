@@ -38,4 +38,13 @@ yarn-error.log*
 next-env.d.ts
 
 .genkit/*
+
+# Environment variables (SECURITY: Never commit API keys!)
+.env
+.env.*
 .env.local
+.env.development
+.env.staging
+.env.production
+functions/.env
+functions/.env.*

@@ -8,34 +8,78 @@ import { extractTransactionDetails } from './ai/flows/extract-transaction-detail
 initializeApp();
 const db = getFirestore();
 
+let webhookConfigCache: any = null;
+let lastConfigFetch = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Helper function to retry Firestore operations
+async function retryOperation<T>(operation: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let lastError;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      if (error.code === 4) { // DEADLINE_EXCEEDED
+        console.warn(`Retry ${i + 1}/${maxRetries} due to timeout`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Exponential backoff
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
+async function getWebhookConfig() {
+  const now = Date.now();
+  if (webhookConfigCache && (now - lastConfigFetch) < CACHE_TTL) {
+    return webhookConfigCache;
+  }
+
+  const configSnap = await retryOperation(() => 
+    db.collection('config').where('type', '==', 'webhook').get()
+  );
+  webhookConfigCache = configSnap.empty ? null : configSnap.docs[0].data();
+  lastConfigFetch = now;
+  return webhookConfigCache;
+}
+
 export const emailReceive = onRequest({
   timeoutSeconds: 540,
   memory: '1GiB',
   region: 'us-central1',
   concurrency: 80,
   cors: true,
-  invoker: 'public'
+  invoker: 'public',
+  minInstances: 1,
+  maxInstances: 10
 }, async (req, res) => {
   res.status(200).json({ success: true, message: 'Webhook received' });
 
   process.nextTick(async () => {
     try {
       console.log('📥 Processing Mailgun webhook...');
+      
       let parsedBody: Record<string, any> = {};
       let files: Record<string, Buffer> = {};
       let transactions: any[] = [];
 
       if (req.headers['content-type']?.includes('multipart/form-data') && req.rawBody) {
+        console.log('📧 Processing multipart form data...');
         const { fields, files: parsedFiles } = await parseMultipartForm(req);
         parsedBody = fields;
         files = Object.fromEntries(
           Object.entries(parsedFiles).map(([key, file]) => [key, file.buffer])
         );
+        console.log('📧 Parsed form fields:', JSON.stringify(parsedBody, null, 2));
         for (const [k, v] of Object.entries(files)) {
           console.log(`📦 File ${k} buffer size: ${v.length}`);
         }
       } else {
+        console.log('📧 Processing regular request body...');
         parsedBody = req.body;
+        console.log('📧 Request body:', JSON.stringify(parsedBody, null, 2));
       }
 
       const messageDetails = {
@@ -54,10 +98,14 @@ export const emailReceive = onRequest({
         })()
       };
 
-      console.log(`📨 Subject: ${messageDetails.subject}`);
-      console.log(`📧 From: ${messageDetails.from}`);
-      console.log(`📎 Attachments in metadata: ${messageDetails.attachments.length}`);
-      console.log(`📁 Files parsed: ${Object.keys(files).join(', ')}`);
+      console.log('📧 Email Details:');
+      console.log('  Subject:', messageDetails.subject);
+      console.log('  From:', messageDetails.from);
+      console.log('  To:', messageDetails.to);
+      console.log('  Message ID:', messageDetails['message-id']);
+      console.log('  Body:', messageDetails.body);
+      console.log('  Attachments:', JSON.stringify(messageDetails.attachments, null, 2));
+      console.log('  Files parsed:', Object.keys(files).join(', '));
 
       for (const [key, buffer] of Object.entries(files)) {
         if (key.toLowerCase().endsWith('.pdf') || key.startsWith('attachment')) {
@@ -95,10 +143,11 @@ export const emailReceive = onRequest({
       }
 
       console.log('📝 Storing email metadata to Firestore');
-      await db.collection('emails').doc(messageDetails['message-id']).set(emailData);
+      const batch = db.batch();
+      batch.set(db.collection('emails').doc(messageDetails['message-id']), emailData);
+      await batch.commit();
 
-      const configSnap = await db.collection('config').where('type', '==', 'webhook').get();
-      const webhookConfig = configSnap.empty ? null : configSnap.docs[0].data();
+      const webhookConfig = await getWebhookConfig();
 
       console.log('🔍 Webhook config:', webhookConfig);
 
@@ -134,6 +183,12 @@ export const emailReceive = onRequest({
       }
     } catch (err: any) {
       console.error('Fatal async error:', err);
+      if (err.code) {
+        console.error('Error code:', err.code);
+      }
+      if (err.details) {
+        console.error('Error details:', err.details);
+      }
     }
   });
 });
