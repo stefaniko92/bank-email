@@ -37,12 +37,48 @@ async function getWebhookConfig() {
     return webhookConfigCache;
   }
 
-  const configSnap = await retryOperation(() => 
+  const configSnap = await retryOperation(() =>
     db.collection('config').where('type', '==', 'webhook').get()
   );
   webhookConfigCache = configSnap.empty ? null : configSnap.docs[0].data();
   lastConfigFetch = now;
   return webhookConfigCache;
+}
+
+async function retryWebhookSend(webhookUrl: string, payload: any, maxRetries = 5): Promise<void> {
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`🚀 Webhook attempt ${attempt}/${maxRetries} to ${webhookUrl}`);
+
+      await axios.post(webhookUrl, payload, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000 // Increased timeout to 30 seconds for hibernating apps
+      });
+
+      console.log(`✅ Webhook sent successfully on attempt ${attempt}`);
+      return;
+
+    } catch (error: any) {
+      lastError = error;
+      const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
+      const isConnectionError = error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND';
+
+      if (attempt < maxRetries && (isTimeout || isConnectionError)) {
+        // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+        const delay = Math.min(2000 * Math.pow(2, attempt - 1), 30000);
+        console.warn(`⏳ Webhook attempt ${attempt} failed (${error.message}), retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
+      // If it's the last attempt or a non-retryable error, throw
+      throw error;
+    }
+  }
+
+  throw lastError;
 }
 
 export const emailReceive = onRequest({
@@ -60,7 +96,7 @@ export const emailReceive = onRequest({
   process.nextTick(async () => {
     try {
       console.log('📥 Processing Mailgun webhook...');
-      
+
       let parsedBody: Record<string, any> = {};
       let files: Record<string, Buffer> = {};
       let transactions: any[] = [];
@@ -163,16 +199,13 @@ export const emailReceive = onRequest({
             }
           }, null, 2));
 
-          await axios.post(webhookConfig.url, {
+          await retryWebhookSend(webhookConfig.url, {
             transactions,
             email: {
               subject: emailData.subject,
               from: emailData.from,
               timestamp: emailData.timestamp
             }
-          }, {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 10000
           });
           console.log('✅ Webhook sent successfully');
         } catch (err) {
