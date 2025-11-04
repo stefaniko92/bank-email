@@ -10,6 +10,8 @@ import { genkit } from 'genkit';
 import { googleAI, gemini15Pro } from '@genkit-ai/googleai';
 import { z } from 'zod';
 
+type GenkitInstance = ReturnType<typeof genkit>;
+
 const TransactionSchema = z.object({
   nazivSedistePrimaoca: z.string(),
   iznosOdobrenja: z.string(),
@@ -21,16 +23,31 @@ const TransactionSchema = z.object({
 export type Transaction = z.infer<typeof TransactionSchema>;
 
 if (!process.env.GOOGLE_GENAI_API_KEY) {
-  throw new Error('GOOGLE_GENAI_API_KEY environment variable is not set');
+  console.warn('GOOGLE_GENAI_API_KEY environment variable is not set. AI extraction will fail until it is configured.');
 }
 
-const ai = genkit({
-  plugins: [googleAI({ apiKey: process.env.GOOGLE_GENAI_API_KEY })],
-  model: gemini15Pro
-});
+let aiInstance: GenkitInstance | null = null;
+
+function getAi(): GenkitInstance {
+  const apiKey = process.env.GOOGLE_GENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GOOGLE_GENAI_API_KEY environment variable is not set');
+  }
+
+  if (!aiInstance) {
+    aiInstance = genkit({
+      plugins: [googleAI({ apiKey })],
+      model: gemini15Pro
+    });
+  }
+
+  return aiInstance;
+}
 
 export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Transaction[]> {
   try {
+    const ai = getAi();
+
     // Convert PDF buffer to base64
     const base64Pdf = pdfBuffer.toString('base64');
 
@@ -103,4 +120,3 @@ export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Tran
     throw error;
   }
 }
-

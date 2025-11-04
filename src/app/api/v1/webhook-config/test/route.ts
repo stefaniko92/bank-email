@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/firebase-admin';
+import { getDb } from '@/lib/firebase-admin';
 
 export async function POST(request: NextRequest) {
   try {
+    const db = getDb();
     // Get current webhook configuration
     const configRef = db.collection('config').doc('webhook');
     const configDoc = await configRef.get();

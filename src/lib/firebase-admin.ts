@@ -1,56 +1,55 @@
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { initializeApp, getApps, cert, type App } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 
-// Initialize Firebase Admin for server-side
-function initializeFirebaseAdmin() {
-  if (getApps().length === 0) {
-    // Check if we have the required environment variables
-    if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
-      console.error('Missing Firebase environment variables:', {
-        projectId: !!process.env.FIREBASE_PROJECT_ID,
-        clientEmail: !!process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: !!process.env.FIREBASE_PRIVATE_KEY
-      });
-      throw new Error('Missing required Firebase environment variables. Please check your .env.local file.');
-    }
+const hasFirebaseEnv = Boolean(
+  process.env.FIREBASE_PROJECT_ID &&
+  process.env.FIREBASE_CLIENT_EMAIL &&
+  process.env.FIREBASE_PRIVATE_KEY
+);
 
-    try {
-      // Parse the private key properly
-      const privateKey = process.env.FIREBASE_PRIVATE_KEY
-        .replace(/\\n/g, '\n')
-        .replace(/^"|"$/g, ''); // Remove surrounding quotes if present
+if (!hasFirebaseEnv) {
+  console.warn('Firebase Admin environment variables are not fully configured. Server-side Firestore access will fail until they are set.');
+}
 
-      const app = initializeApp({
-        credential: cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: privateKey,
-        })
-      });
+let firebaseApp: App | null = null;
+let firestoreInstance: Firestore | null = null;
 
-      // Initialize Firestore with explicit settings
-      const firestore = getFirestore(app);
-      
-      return app;
-    } catch (error) {
-      console.error('Error initializing Firebase Admin:', error);
-      throw error;
-    }
+function initializeFirebaseAdmin(): App {
+  if (firebaseApp) {
+    return firebaseApp;
   }
-  return getApps()[0];
+
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKeyEnv = process.env.FIREBASE_PRIVATE_KEY;
+
+  if (!projectId || !clientEmail || !privateKeyEnv) {
+    throw new Error('Missing required Firebase environment variables. Please check your configuration.');
+  }
+
+  const privateKey = privateKeyEnv
+    .replace(/\\n/g, '\n')
+    .replace(/^"|"$/g, '');
+
+  firebaseApp = getApps().length
+    ? getApps()[0]
+    : initializeApp({
+        credential: cert({
+          projectId,
+          clientEmail,
+          privateKey,
+        }),
+      });
+
+  return firebaseApp;
 }
 
-// Initialize Firebase Admin
-let app;
-let db: Firestore;
+export function getDb(): Firestore {
+  if (firestoreInstance) {
+    return firestoreInstance;
+  }
 
-try {
-  app = initializeFirebaseAdmin();
-  db = getFirestore(app);
-} catch (error) {
-  console.error('Failed to initialize Firebase Admin:', error);
-  // Re-throw the error to prevent the app from starting with invalid Firebase configuration
-  throw error;
+  const app = initializeFirebaseAdmin();
+  firestoreInstance = getFirestore(app);
+  return firestoreInstance;
 }
-
-export { db }; 
