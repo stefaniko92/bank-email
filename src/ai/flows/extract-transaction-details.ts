@@ -1,122 +1,96 @@
-/**
- * @fileOverview Extracts transaction details directly from PDF files using Gemini AI.
- *
- * - extractTransactionDetails - A function that extracts transaction details from text content.
- * - ExtractTransactionDetailsInput - The input type for the extractTransactionDetails function.
- * - ExtractTransactionDetailsOutput - The return type for the ExtractTransactionDetails function.
- */
-
-import { genkit } from 'genkit';
-import { googleAI, gemini15Pro } from '@genkit-ai/googleai';
 import { z } from 'zod';
-
-type GenkitInstance = ReturnType<typeof genkit>;
+import { extractTextFromPdf } from '@/lib/pdf-utils';
+import { generateText } from '@/lib/ai/chat';
 
 const TransactionSchema = z.object({
   nazivSedistePrimaoca: z.string(),
   iznosOdobrenja: z.string(),
   pozivNaBrojOdobrenja: z.string(),
   referentnaOznaka: z.string(),
-  datumKnjizenja: z.string()
+  datumKnjizenja: z.string(),
 });
 
 export type Transaction = z.infer<typeof TransactionSchema>;
 
-if (!process.env.GOOGLE_GENAI_API_KEY) {
-  console.warn('GOOGLE_GENAI_API_KEY environment variable is not set. AI extraction will fail until it is configured.');
-}
+function cleanJsonResponse(raw: string): string {
+  let text = raw.trim();
 
-let aiInstance: GenkitInstance | null = null;
-
-function getAi(): GenkitInstance {
-  const apiKey = process.env.GOOGLE_GENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GOOGLE_GENAI_API_KEY environment variable is not set');
+  if (text.startsWith('```json')) {
+    text = text.slice(7);
+  } else if (text.startsWith('```')) {
+    text = text.slice(3);
   }
 
-  if (!aiInstance) {
-    aiInstance = genkit({
-      plugins: [googleAI({ apiKey })],
-      model: gemini15Pro
-    });
+  if (text.endsWith('```')) {
+    text = text.slice(0, -3);
   }
 
-  return aiInstance;
+  return text.trim();
 }
 
 export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Transaction[]> {
-  try {
-    const ai = getAi();
+  const pdfText = await extractTextFromPdf(pdfBuffer);
 
-    // Convert PDF buffer to base64
-    const base64Pdf = pdfBuffer.toString('base64');
-
-    // Prepare the prompt with strict JSON output instructions
-    const prompt = `
-      You are a JSON generator that extracts transaction details from bank statements.
-      Analyze the provided PDF and extract all transactions.
-      
-      Return ONLY a valid JSON array of transactions with these exact fields:
-      {
-        "nazivSedistePrimaoca": "string (recipient name)",
-        "iznosOdobrenja": "string (amount)",
-        "pozivNaBrojOdobrenja": "string (reference number)",
-        "referentnaOznaka": "string (reference mark)",
-        "datumKnjizenja": "string (posting date)"
-      }
-      
-      Rules:
-      1. Return ONLY the JSON array, no other text
-      2. Use "N/A" for missing values
-      3. Ensure all values are strings
-      4. Format must be exactly as shown above
-      5. Do not include any explanations or markdown
-      6. Extract ALL transactions from the document
-    `;
-
-    // Generate transaction details using AI with PDF input
-    const { text: responseText } = await ai.generate({
-      model: gemini15Pro,
-      prompt: [{
-        text: prompt
-      }, {
-        media: {
-          url: `data:application/pdf;base64,${base64Pdf}`
-        }
-      }],
-      config: {
-        temperature: 0.1,
-        topP: 0.1,
-        topK: 16,
-        maxOutputTokens: 2048,
-        responseMimeType: 'application/json'
-      }
-    });
-
-    // Parse and validate the response
-    try {
-      const parsedResponse = JSON.parse(responseText);
-      if (!Array.isArray(parsedResponse)) {
-        throw new Error('Response is not an array');
-      }
-
-      // Validate each transaction against the schema
-      const transactions = parsedResponse.map(transaction => {
-        const result = TransactionSchema.safeParse(transaction);
-        if (!result.success) {
-          throw new Error(`Invalid transaction format: ${result.error.message}`);
-        }
-        return result.data;
-      });
-
-      return transactions;
-    } catch (error) {
-      console.error('Error parsing AI response:', error);
-      console.error('Raw response:', responseText);
-      throw new Error(`Failed to parse AI response: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  } catch (error) {
-    console.error('Error in extractTransactionDetails:', error);
-    throw error;
+  if (!pdfText.trim()) {
+    throw new Error('Unable to extract text from PDF');
   }
+
+  const truncatedText = pdfText.slice(0, 60_000);
+
+  const systemPrompt = `
+You are a financial data extraction assistant.
+Return ONLY a valid JSON array. Each transaction must include these fields exactly:
+- "nazivSedistePrimaoca": recipient name or description (string)
+- "iznosOdobrenja": transaction amount, include sign for debit/credit (string)
+- "pozivNaBrojOdobrenja": reference number or identifier (string)
+- "referentnaOznaka": reference mark or type (string)
+- "datumKnjizenja": posting date (string)
+
+Rules:
+1. Respond with JSON array and nothing else.
+2. Use "N/A" when information is missing.
+3. Combine multi-line rows into single transactions.
+4. Capture EVERY transaction present in the statement.
+  `.trim();
+
+  const userPrompt = `
+Bank statement text:
+<<<
+${truncatedText}
+>>>
+
+Produce the JSON array now.
+  `.trim();
+
+  const responseText = await generateText({
+    system: systemPrompt,
+    prompt: userPrompt,
+    maxTokens: 2048,
+    temperature: 0.1,
+  });
+
+  const cleaned = cleanJsonResponse(responseText);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (error) {
+    console.error('Failed to parse AI response as JSON:', error);
+    console.error('Raw response:', responseText);
+    throw new Error('AI response was not valid JSON');
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error('AI response is not a JSON array');
+  }
+
+  const transactions = parsed.map((transaction, index) => {
+    const result = TransactionSchema.safeParse(transaction);
+    if (!result.success) {
+      throw new Error(`Invalid transaction at index ${index}: ${result.error.message}`);
+    }
+    return result.data;
+  });
+
+  return transactions;
 }

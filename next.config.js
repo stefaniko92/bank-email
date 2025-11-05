@@ -7,10 +7,6 @@ const nextConfig = {
   experimental: {
     appDocumentPreloading: true,
   },
-  // Enable environment variables
-  env: {
-    GOOGLE_GENAI_API_KEY: process.env.GOOGLE_GENAI_API_KEY,
-  },
   // Add security headers
   async headers() {
     return [

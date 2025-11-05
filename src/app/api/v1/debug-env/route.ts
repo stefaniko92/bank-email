@@ -1,15 +1,24 @@
 import { NextResponse } from 'next/server';
-import { getGoogleApiKey } from '@/lib/env';
 
 export async function GET() {
-  const apiKey = getGoogleApiKey();
-  
+  const provider = (process.env.AI_PROVIDER ?? 'openai').toLowerCase();
+  const openaiKey = process.env.OPENAI_API_KEY ?? '';
+  const anthropicKey = process.env.ANTHROPIC_API_KEY ?? '';
+  const envKeys = Object.keys(process.env).filter(key =>
+    key.startsWith('OPENAI') ||
+    key.startsWith('ANTHROPIC') ||
+    key === 'AI_PROVIDER' ||
+    key === 'DATABASE_URL'
+  );
+
   return NextResponse.json({
-    hasApiKey: !!apiKey,
-    apiKeyLength: apiKey ? apiKey.length : 0,
-    envKeys: Object.keys(process.env).filter(key => key.includes('GOOGLE')),
+    provider,
+    hasOpenAIKey: !!openaiKey,
+    openaiKeyPreview: openaiKey ? `${openaiKey.substring(0, 4)}...` : null,
+    hasAnthropicKey: !!anthropicKey,
+    anthropicKeyPreview: anthropicKey ? `${anthropicKey.substring(0, 4)}...` : null,
+    databaseUrlSet: !!process.env.DATABASE_URL,
     nodeEnv: process.env.NODE_ENV,
-    // Log the first few characters of the API key for debugging (if it exists)
-    apiKeyPreview: apiKey ? `${apiKey.substring(0, 4)}...` : null,
+    envKeys,
   });
-} 
+}
