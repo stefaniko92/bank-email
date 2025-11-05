@@ -93,11 +93,18 @@ async function sendWebhookWithRetry(url: string, payload: unknown, maxRetries = 
 
       if (!response.ok) {
         const shouldRetry = response.status >= 500 && attempt < maxRetries;
+        const status = response.status;
+        const bodyText = await response.text();
+
+        console.warn(
+          `Webhook call to ${url} failed with status ${status} on attempt ${attempt}. Response body: ${bodyText}`,
+        );
+
         if (!shouldRetry) {
-          const bodyText = await response.text();
-          throw new Error(`Webhook responded with ${response.status}: ${bodyText}`);
+          throw new Error(`Webhook responded with ${status}: ${bodyText}`);
         }
       } else {
+        console.log(`Webhook call to ${url} succeeded on attempt ${attempt}`);
         return;
       }
     } catch (error) {
@@ -108,7 +115,9 @@ async function sendWebhookWithRetry(url: string, payload: unknown, maxRetries = 
       }
 
       const backoff = Math.min(2000 * 2 ** (attempt - 1), 30000);
-      console.warn(`Webhook attempt ${attempt} failed (${(error as Error).message}). Retrying in ${backoff}ms…`);
+      console.warn(
+        `Webhook attempt ${attempt} to ${url} failed: ${(error as Error).message}. Retrying in ${backoff}ms…`,
+      );
       await new Promise(resolve => setTimeout(resolve, backoff));
     }
 
