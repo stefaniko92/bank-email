@@ -1,109 +1,108 @@
 # Bank Email Processor
 
-This Next.js application receives and processes bank statements from email attachments and extracts structured transaction data using Google's Gemini AI models. It then forwards the extracted data to a configured webhook endpoint (your source application).
+This repository hosts a Next.js application that ingests bank-statement emails, extracts transactions from PDF attachments, stores the results in Postgres, and forwards them to a configurable webhook. The app is deployed on Vercel (frontend + API routes) and uses Neon Postgres as its persistence layer. PDF->transaction extraction is powered by OpenAI by default, with optional Anthropic support.
+
+## Architecture Overview
+
+| Concern             | Technology / Provider                     |
+|---------------------|-------------------------------------------|
+| Hosting (prod)      | Vercel (Next.js 15 serverless functions)  |
+| Database            | Neon Postgres (`webhook_config`, `emails`, `transactions`) |
+| AI provider         | OpenAI `gpt-4o-mini` (default) or Anthropic via `AI_PROVIDER` env |
+| Email ingest (prod) | Mailgun webhook (still handled by the Firebase Function until migrated) |
+| Webhook forwarding  | Configurable target URL stored in Postgres |
 
 ## Key Features
 
-- Receives emails via webhook (e.g., from Mailgun).
-- Extracts PDF attachments from emails.
-- Direct PDF processing using Gemini AI's native PDF understanding capabilities.
-- Extracts key parameters for each payment (configurable in the AI flow).
-- Forwards extracted transaction data to a configurable webhook URL.
-- Provides a simple UI for testing PDF uploads and viewing logs/settings.
+- Receive Mailgun-style webhooks with email metadata and PDF attachments.
+- Extract transactions from PDF statements using LLMs (OpenAI by default, Anthropic optional).
+- Persist email metadata and extracted transactions in Neon Postgres.
+- Forward the structured transactions to an external webhook with retry/backoff and detailed logging.
+- Provide a lightweight UI for manual PDF testing, settings, and log inspection.
 
-## Setup Instructions
+## Deployment Summary
+
+- **Prod host:** Vercel project (Promote the latest preview → production).
+- **Database:** Neon Postgres (connection string provided in `DATABASE_URL`).
+- **AI model:** `gpt-4o-mini` via OpenAI. Override with `OPENAI_MODEL`, or set `AI_PROVIDER=anthropic` + `ANTHROPIC_MODEL`.
+- **Secret management:** Vercel Environment Variables (Production / Preview / Development).
+
+### Required Vercel Environment Variables
+
+| Variable             | Required? | Notes |
+|----------------------|-----------|-------|
+| `DATABASE_URL`       | ✅         | Neon Postgres pooled connection string. |
+| `OPENAI_API_KEY`     | ✅ (default setup) | Required when `AI_PROVIDER` is `openai` (default). |
+| `AI_PROVIDER`        | optional  | `openai` (default) or `anthropic`. |
+| `OPENAI_MODEL`       | optional  | Defaults to `gpt-4o-mini`. |
+| `ANTHROPIC_API_KEY`  | when needed | Only if `AI_PROVIDER=anthropic`. |
+| `ANTHROPIC_MODEL`    | optional  | Defaults to `claude-3-5-sonnet-latest`. |
+
+For Mailgun → Vercel migration, configure Mailgun to hit `https://<project>.vercel.app/api/mailgun`.
+
+### Deploying to Production
+
+1. Push changes to the tracked branch (e.g., `develop`).
+2. Vercel builds a preview deployment automatically; verify logs/API.
+3. In Vercel → Deployments, click **Promote to Production** on the verified preview.
+4. Confirm the production deployment shows `/api/mailgun` route, then repoint Mailgun if needed.
+5. Validate Postgres data (`emails`, `transactions`, `webhook_config`) and webhook deliveries.
+
+## Local Development
 
 ### Prerequisites
-- Node.js 18+ and npm
-- Google API Key for Gemini models (e.g., `gemini-1.5-pro-latest`)
-- An email service capable of forwarding emails via webhook (e.g., Mailgun)
-- A target webhook URL (your source application endpoint) to receive the extracted data.
+- Node.js 18+
+- Neon Postgres database (copy/paste the `DATABASE_URL` from Neon dashboard).
+- OpenAI API key (or Anthropic key if you prefer their models).
 
-### Installation
-1. Clone the repository.
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+### Install & Run
+```bash
+npm install
+npm run dev   # launches Next.js on http://localhost:9002
+```
 
-### Environment Setup
-1. Create a `.env.local` file in the root directory.
-2. Add your Google API key:
-   ```
-   GOOGLE_API_KEY=your_google_ai_api_key_here
-   ```
-   You can obtain a Google API key from the [Google AI Studio](https://aistudio.google.com/app/apikey).
-3. **(Optional but recommended)** Set the target webhook URL for your source application:
-   ```
-   WEBHOOK_URL=https://your-source-app.com/api/receive-payment-data
-   # Or use SOURCE_APP_WEBHOOK_URL (either works)
-   # SOURCE_APP_WEBHOOK_URL=https://your-source-app.com/api/receive-payment-data
-   ```
-   *This is the URL where the extracted transaction data will be sent.* If not set here, you **must** configure it via the `/settings` page in the application UI.
+Set up a local `.env.local` with at least:
+```env
+DATABASE_URL=postgresql://...
+OPENAI_API_KEY=sk-...
+# optional overrides
+AI_PROVIDER=openai
+OPENAI_MODEL=gpt-4o-mini
+```
 
-### Running the Application
+### Manual Testing
+- Use the home page to upload PDFs and verify extraction.
+- Configure webhook settings via `/settings`. These settings write directly into Neon (`webhook_config` table).
+- Watch the terminal / Vercel logs for lines beginning with `[AI]` (OpenAI/Anthropic calls) and `Webhook call to ...` for outbound delivery status.
 
-1. Development mode:
-   ```bash
-   npm run dev
-   ```
-   The application will typically be available at http://localhost:9002 (check console output).
+## Data Model (Neon Postgres)
 
-2. Build for production:
-   ```bash
-   npm run build
-   npm start
-   ```
+- `emails` – stores sanitized metadata about each processed email (subject, from/to, attachments summary, timestamps).
+- `transactions` – one row per extracted transaction linked to `emails.id`.
+- `webhook_config` – single row (`id='default'`) capturing `url`, `enabled`, and `updated_at`.
 
-## Usage Instructions
+To seed/update the webhook config manually:
+```sql
+INSERT INTO webhook_config (id, url, enabled, updated_at)
+VALUES ('default', 'https://your-target-url', TRUE, NOW())
+ON CONFLICT (id) DO UPDATE
+SET url = EXCLUDED.url,
+    enabled = EXCLUDED.enabled,
+    updated_at = EXCLUDED.updated_at;
+```
 
-1.  **Configure Email Forwarding:**
-    *   Set up your email service (e.g., Mailgun) to forward emails sent to a specific address (e.g., `payments@yourdomain.com`) to your application's receiving endpoint: `YOUR_APP_URL/api/v1/email/receive` (replace `YOUR_APP_URL` with your actual deployed application URL).
-    *   Ensure the email service sends the full email content, including attachments, typically as `multipart/form-data`.
-2.  **Configure Webhook Target:**
-    *   Navigate to the `/settings` page in the application UI.
-    *   Enter the URL of your source application's endpoint where the extracted transaction data should be sent.
-    *   Ensure the "Enable webhook forwarding" switch is turned on.
-    *   Alternatively, set the `WEBHOOK_URL` or `SOURCE_APP_WEBHOOK_URL` environment variable (see Environment Setup). The UI setting takes precedence if set.
-    *   Use the "Test Webhook" button to verify connectivity.
-3.  **Send Test Email:**
-    *   Send an email containing a bank statement PDF as an attachment to the email address you configured in step 1.
-4.  **Monitor:**
-    *   Check the application logs (console output or `/logs` page in the UI) to see if the email was received and processed.
-    *   Verify that your source application's webhook endpoint received the transaction data.
+## Logging
 
-## Application Structure
+- AI calls log provider, model, prompt length, and latency (`[AI]` prefix).
+- Webhook forwarding logs each attempt, including HTTP status and response body on failure.
+- Persistent data writes log IDs and timestamps.
+You can view logs via Vercel → Functions → `/api/mailgun`, or in local dev console.
 
--   **/src/app/api/v1/email/receive/route.ts**: API endpoint that receives emails from the email service (e.g., Mailgun).
--   **/src/app/api/v1/webhook-config/route.ts**: API endpoint for managing the target webhook configuration.
--   **/src/ai/flows/extract-transaction-details.ts**: Genkit flow responsible for calling the Gemini AI model to extract data directly from PDFs.
--   **/src/services/email-logger.ts**: Simple in-memory logger for received emails (for debugging/viewing in UI).
--   **/src/app/page.tsx**: Simple UI for manual PDF upload and testing extraction.
--   **/src/app/settings/page.tsx**: UI for configuring the target webhook URL.
--   **/src/app/logs/page.tsx**: UI for viewing received email logs.
+## Troubleshooting Checklist
 
-## Troubleshooting
+- **AI failures:** Check `[AI] ... request failed` logs; verify API keys and model names.
+- **Webhook delivery issues:** Ensure `webhook_config` has `enabled=true` and the correct URL; inspect the retry logs for HTTP errors.
+- **Database connectivity:** Confirm `DATABASE_URL` is present and Neon credentials are valid; check Neon dashboard for connection errors.
+- **401/404 from Mailgun:** Verify Mailgun route points to the correct Vercel URL and that the deployment is live.
 
--   **Emails not received:**
-    *   Verify your email service (e.g., Mailgun) forwarding/route configuration.
-    *   Check Mailgun logs for delivery errors to your `/api/v1/email/receive` endpoint.
-    *   Ensure your application is running and accessible at the configured URL.
--   **PDFs not processed / No transactions extracted:**
-    *   Check application logs for errors during PDF processing or AI calls.
-    *   Verify the `GOOGLE_API_KEY` is correct and has access to the necessary Gemini models.
-    *   Ensure the PDF attachment is not corrupted and contains readable text.
-    *   Adjust the prompt in `extract-transaction-details.ts` if the AI consistently fails to extract data for your specific bank statement format.
--   **Webhook not triggering:**
-    *   Confirm the webhook URL is correctly entered and enabled in the `/settings` page or environment variables.
-    *   Use the "Test Webhook" button on the `/settings` page.
-    *   Check application logs for errors during the webhook POST request.
-    *   Ensure your target webhook endpoint is running and accessible.
--   **500 Errors:**
-    *   Check server-side logs for detailed error messages (API key issues, AI model errors, file system permission errors for config).
-    *   Ensure environment variables (`GOOGLE_API_KEY`, optionally `WEBHOOK_URL`) are correctly set.
-
-## Development
-
--   **Test PDF Extraction:** Use the manual upload feature on the home page (`/`) to test PDF processing and AI extraction without needing email setup.
-
-    
+Questions or deployment notes? Document them here so production parity stays clear.

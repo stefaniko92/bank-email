@@ -1,3 +1,4 @@
+import '@/lib/setup-node-warnings';
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTransactionDetails, type Transaction } from '@/ai/flows/extract-transaction-details';
 import { getWebhookConfig as fetchWebhookConfig, saveEmailWithTransactions } from '@/lib/storage';

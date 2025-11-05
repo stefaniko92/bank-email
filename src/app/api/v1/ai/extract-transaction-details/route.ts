@@ -1,3 +1,4 @@
+import '@/lib/setup-node-warnings';
 import { NextResponse } from 'next/server';
 import { extractTransactionDetails } from '@/ai/flows/extract-transaction-details';
 
