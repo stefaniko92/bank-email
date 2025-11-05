@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTransactionDetails, type Transaction } from '@/ai/flows/extract-transaction-details';
-import { getDb } from '@/lib/firebase-admin';
+import { getWebhookConfig as fetchWebhookConfig, saveEmailWithTransactions } from '@/lib/storage';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -168,9 +168,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const db = getDb();
-    const emailDocId = messageDetails.messageId || db.collection('emails').doc().id;
-
     const emailData = {
       subject: messageDetails.subject,
       from: messageDetails.from,
@@ -184,23 +181,31 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    await db.collection('emails').doc(emailDocId).set(emailData, { merge: true });
+    await saveEmailWithTransactions(
+      {
+        subject: emailData.subject,
+        from: emailData.from,
+        to: emailData.to,
+        body: messageDetails.body,
+        timestamp: emailData.timestamp,
+        messageId: emailData.messageId,
+        attachments: emailData.attachments,
+      },
+      transactions,
+    );
 
     try {
-      const configSnapshot = await db.collection('config').doc('webhook').get();
-      if (configSnapshot.exists) {
-        const configData = configSnapshot.data() as { url?: string; enabled?: boolean } | undefined;
-        if (configData?.enabled && configData?.url) {
-          const payload = {
-            transactions,
-            email: {
-              subject: emailData.subject,
-              from: emailData.from,
-              timestamp: emailData.timestamp,
-            },
-          };
-          await sendWebhookWithRetry(configData.url, payload);
-        }
+      const webhookConfig = await fetchWebhookConfig();
+      if (webhookConfig?.enabled && webhookConfig?.url) {
+        const payload = {
+          transactions,
+          email: {
+            subject: emailData.subject,
+            from: emailData.from,
+            timestamp: emailData.timestamp,
+          },
+        };
+        await sendWebhookWithRetry(webhookConfig.url, payload);
       }
     } catch (error) {
       console.error('Failed to forward webhook payload:', error);

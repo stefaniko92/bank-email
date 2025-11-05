@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/firebase-admin';
+import { getWebhookConfig } from '@/lib/storage';
 
 export async function POST(request: NextRequest) {
   try {
-    const db = getDb();
-    // Get current webhook configuration
-    const configRef = db.collection('config').doc('webhook');
-    const configDoc = await configRef.get();
-    
-    if (!configDoc.exists || !configDoc.data()?.url) {
+    const config = await getWebhookConfig();
+
+    if (!config?.url) {
       return NextResponse.json(
         { error: 'No webhook URL configured' },
         { status: 400 }
       );
     }
-
-    const config = configDoc.data() as { url: string };
 
     // Create a test payload
     const testPayload = {

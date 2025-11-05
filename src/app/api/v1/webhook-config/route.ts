@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/firebase-admin';
+import { getWebhookConfig, upsertWebhookConfig } from '@/lib/storage';
 
 export async function GET() {
   try {
-    const db = getDb();
-    const configRef = db.collection('config').doc('webhook');
-    const configDoc = await configRef.get();
-    
-    if (!configDoc.exists) {
+    const config = await getWebhookConfig();
+    if (!config) {
       return NextResponse.json(
         { error: 'Webhook configuration not found' },
         { status: 404 }
       );
     }
 
-    return NextResponse.json(configDoc.data());
+    return NextResponse.json({
+      url: config.url,
+      enabled: config.enabled,
+      updatedAt: config.updated_at
+    });
   } catch (error) {
     console.error('Error getting webhook config:', error);
     return NextResponse.json(
@@ -26,7 +27,6 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const db = getDb();
     const data = await request.json();
     
     // Validate input
@@ -44,16 +44,19 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    const configRef = db.collection('config').doc('webhook');
-    
-    // Update configuration
-    await configRef.set({
+    const updated = await upsertWebhookConfig({
       url: data.url,
-      enabled: data.enabled,
-      lastUpdated: new Date().toISOString()
-    }, { merge: true });
-    
-    return NextResponse.json({ success: true });
+      enabled: data.enabled
+    });
+
+    return NextResponse.json({
+      success: true,
+      config: {
+        url: updated.url,
+        enabled: updated.enabled,
+        updatedAt: updated.updated_at
+      }
+    });
   } catch (error) {
     console.error('Error updating webhook config:', error);
     return NextResponse.json(
