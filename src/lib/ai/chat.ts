@@ -109,6 +109,7 @@ export async function generateText(options: GenerateOptions): Promise<string> {
         { role: 'system', content: system },
         { role: 'user', content: prompt },
       ],
+      response_format: { type: 'json_object' },
     });
 
     const text = response.choices[0]?.message?.content?.trim() ?? '';

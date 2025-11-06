@@ -69,11 +69,9 @@ Produce the JSON array now.
     temperature: 0.1,
   });
 
-  const cleaned = cleanJsonResponse(responseText);
-
   let parsed: unknown;
   try {
-    parsed = JSON.parse(cleaned);
+    parsed = JSON.parse(responseText);
   } catch (error) {
     console.error('Failed to parse AI response as JSON:', error);
     console.error('Raw response:', responseText);
