@@ -64,7 +64,7 @@ function logResponse(targetProvider: Provider, model: string, durationMs: number
 }
 
 export async function generateText(options: GenerateOptions): Promise<string> {
-  const { system, prompt, maxTokens = 2048, temperature = 0.2 } = options;
+  const { system, prompt, maxTokens = 4096, temperature = 0.2 } = options;
   const start = Date.now();
 
   if (provider === 'anthropic') {

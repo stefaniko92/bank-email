@@ -73,12 +73,21 @@ Produce the JSON array now.
   try {
     parsed = JSON.parse(responseText);
   } catch (error) {
-    console.error('Failed to parse AI response as JSON:', error);
-    console.error('Raw response:', responseText);
-    throw new Error('AI response was not valid JSON');
+    const arraySlice = extractJsonArray(responseText);
+    if (!arraySlice) {
+      console.error('Failed to parse AI response as JSON:', error);
+      console.error('Raw response:', responseText);
+      throw new Error('AI response was not valid JSON');
+    }
+    parsed = arraySlice;
+  }
+
+  if (isObjectWithTransactions(parsed)) {
+    parsed = parsed.transactions;
   }
 
   if (!Array.isArray(parsed)) {
+    console.error('AI response is not a JSON array:', parsed);
     throw new Error('AI response is not a JSON array');
   }
 
@@ -138,4 +147,29 @@ function normalizeDate(raw: string): string {
     return `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4, 8)}`;
   }
   return raw.trim();
+}
+
+function isObjectWithTransactions(value: unknown): value is { transactions: unknown } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'transactions' in value &&
+    Array.isArray((value as any).transactions)
+  );
+}
+
+function extractJsonArray(raw: string): unknown[] | null {
+  const start = raw.indexOf('[');
+  const end = raw.lastIndexOf(']');
+  if (start === -1 || end === -1 || end <= start) {
+    return null;
+  }
+
+  const candidate = raw.slice(start, end + 1);
+  try {
+    const parsed = JSON.parse(candidate);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
 }
