@@ -35,71 +35,28 @@ export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Tran
     throw new Error('Unable to extract text from PDF');
   }
 
-  const truncatedText = pdfText.slice(0, 60_000);
+  const chunks = chunkText(pdfText, 12_000);
+  const results: Transaction[] = [];
+  const seen = new Set<string>();
 
-  const systemPrompt = `
-You are a financial data extraction assistant.
-Return ONLY a valid JSON array. Each transaction must include these fields exactly:
-- "nazivSedistePrimaoca": recipient name or description (string)
-- "iznosOdobrenja": transaction amount, include sign for debit/credit (string)
-- "pozivNaBrojOdobrenja": reference number or identifier (string)
-- "referentnaOznaka": reference mark or type (string)
-- "datumKnjizenja": posting date (string)
+  for (let i = 0; i < chunks.length; i++) {
+    const chunkTransactions = await extractTransactionsFromChunk(
+      chunks[i],
+      i,
+      chunks.length,
+    );
 
-Rules:
-1. Respond with JSON array and nothing else.
-2. Use "N/A" when information is missing.
-3. Combine multi-line rows into single transactions.
-4. Capture EVERY transaction present in the statement.
-  `.trim();
-
-  const userPrompt = `
-Bank statement text:
-<<<
-${truncatedText}
->>>
-
-Produce the JSON array now.
-  `.trim();
-
-  const responseText = await generateText({
-    system: systemPrompt,
-    prompt: userPrompt,
-    maxTokens: 2048,
-    temperature: 0.1,
-  });
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(responseText);
-  } catch (error) {
-    const arraySlice = extractJsonArray(responseText);
-    if (!arraySlice) {
-      console.error('Failed to parse AI response as JSON:', error);
-      console.error('Raw response:', responseText);
-      throw new Error('AI response was not valid JSON');
+    for (const transaction of chunkTransactions) {
+      const sanitized = sanitizeTransaction(transaction);
+      const key = JSON.stringify(sanitized);
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push(sanitized);
+      }
     }
-    parsed = arraySlice;
   }
 
-  if (isObjectWithTransactions(parsed)) {
-    parsed = parsed.transactions;
-  }
-
-  if (!Array.isArray(parsed)) {
-    console.error('AI response is not a JSON array:', parsed);
-    throw new Error('AI response is not a JSON array');
-  }
-
-const transactions = parsed.map((transaction, index) => {
-  const result = TransactionSchema.safeParse(transaction);
-  if (!result.success) {
-    throw new Error(`Invalid transaction at index ${index}: ${result.error.message}`);
-  }
-  return sanitizeTransaction(result.data);
-});
-
-return transactions;
+  return results;
 }
 
 function sanitizeTransaction(transaction: Transaction): Transaction {
@@ -172,4 +129,74 @@ function extractJsonArray(raw: string): unknown[] | null {
   } catch {
     return null;
   }
+}
+
+function chunkText(text: string, size: number): string[] {
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; i += size) {
+    chunks.push(text.slice(i, i + size));
+  }
+  return chunks;
+}
+
+async function extractTransactionsFromChunk(
+  chunk: string,
+  chunkIndex: number,
+  totalChunks: number,
+): Promise<Transaction[]> {
+  const systemPrompt = `
+You are a financial data extraction assistant.
+Return ONLY JSON. Each transaction must include:
+- "nazivSedistePrimaoca": string
+- "iznosOdobrenja": string (amount, keep decimal separator)
+- "pozivNaBrojOdobrenja": string
+- "referentnaOznaka": string
+- "datumKnjizenja": string
+
+Rules:
+1. Respond with a JSON object that has a "transactions" array.
+2. Include only transactions that appear in the provided text chunk.
+3. Use "N/A" for missing values.
+4. Do not reference other chunks or infer missing data.
+  `.trim();
+
+  const userPrompt = `
+Bank statement text (chunk ${chunkIndex + 1} of ${totalChunks}):
+<<<
+${chunk}
+>>>
+
+Return: { "transactions": [...] }
+  `.trim();
+
+  const responseText = await generateText({
+    system: systemPrompt,
+    prompt: userPrompt,
+    maxTokens: 2000,
+    temperature: 0.1,
+  });
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(responseText);
+  } catch (error) {
+    const arraySlice = extractJsonArray(responseText);
+    if (!arraySlice) {
+      console.error('Failed to parse chunk response as JSON:', error);
+      console.error('Raw chunk response:', responseText);
+      return [];
+    }
+    parsed = { transactions: arraySlice };
+  }
+
+  if (isObjectWithTransactions(parsed)) {
+    return parsed.transactions as Transaction[];
+  }
+
+  if (Array.isArray(parsed)) {
+    return parsed as Transaction[];
+  }
+
+  console.warn('Unexpected chunk response shape:', parsed);
+  return [];
 }
