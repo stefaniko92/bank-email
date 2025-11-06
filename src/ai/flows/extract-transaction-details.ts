@@ -84,13 +84,60 @@ Produce the JSON array now.
     throw new Error('AI response is not a JSON array');
   }
 
-  const transactions = parsed.map((transaction, index) => {
-    const result = TransactionSchema.safeParse(transaction);
-    if (!result.success) {
-      throw new Error(`Invalid transaction at index ${index}: ${result.error.message}`);
-    }
-    return result.data;
-  });
+const transactions = parsed.map((transaction, index) => {
+  const result = TransactionSchema.safeParse(transaction);
+  if (!result.success) {
+    throw new Error(`Invalid transaction at index ${index}: ${result.error.message}`);
+  }
+  return sanitizeTransaction(result.data);
+});
 
-  return transactions;
+return transactions;
+}
+
+function sanitizeTransaction(transaction: Transaction): Transaction {
+  return {
+    nazivSedistePrimaoca: transaction.nazivSedistePrimaoca.trim(),
+    iznosOdobrenja: formatAmount(transaction.iznosOdobrenja),
+    pozivNaBrojOdobrenja: normalizePozivNaBroj(transaction.pozivNaBrojOdobrenja),
+    referentnaOznaka: normalizeReferentnaOznaka(transaction.referentnaOznaka),
+    datumKnjizenja: normalizeDate(transaction.datumKnjizenja),
+  };
+}
+
+function formatAmount(raw: string): string {
+  const cleaned = raw.replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}(?:[.,]|$))/g, '').replace(',', '.');
+  const numeric = Number.parseFloat(cleaned);
+  if (!Number.isFinite(numeric)) {
+    return 'N/A';
+  }
+  return numeric.toLocaleString('sr-RS', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function normalizePozivNaBroj(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 14) {
+    return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5, 8)}-${digits.slice(8, 14)}`;
+  }
+  if (digits.length === 12) {
+    return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5, 8)}-${digits.slice(8, 12)}`;
+  }
+  return 'N/A';
+}
+
+function normalizeReferentnaOznaka(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length >= 12) {
+    const normalized = digits.slice(0, 12);
+    return `${normalized.slice(0, 2)}-${normalized.slice(2, 5)}-${normalized.slice(5, 8)}-${normalized.slice(8, 12)}`;
+  }
+  return 'N/A';
+}
+
+function normalizeDate(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 8) {
+    return `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4, 8)}`;
+  }
+  return raw.trim();
 }
