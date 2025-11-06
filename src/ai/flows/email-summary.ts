@@ -55,7 +55,7 @@ Subject: ${parsedInput.email.subject}
 ${parsedInput.email.body}
   `.trim();
 
-  const summary = await generateText({
+  const { text: summary } = await generateText({
     system: systemPrompt,
     prompt: userPrompt,
     maxTokens: 300,
@@ -90,10 +90,11 @@ ${parsed.text}
 ${attachmentText}
   `.trim();
 
-  return generateText({
+  const { text } = await generateText({
     system: 'You are an assistant that writes concise business summaries.',
     prompt,
     maxTokens: 350,
     temperature: 0.3,
   });
+  return text;
 }

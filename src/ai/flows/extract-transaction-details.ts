@@ -35,7 +35,7 @@ export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Tran
     throw new Error('Unable to extract text from PDF');
   }
 
-  const chunks = chunkText(pdfText, 12_000);
+  const chunks = chunkText(pdfText, CHUNK_SIZE);
   const results: Transaction[] = [];
   const seen = new Set<string>();
 
@@ -131,6 +131,10 @@ function extractJsonArray(raw: string): unknown[] | null {
   }
 }
 
+const CHUNK_SIZE = 3_500;
+const MIN_SPLIT_LENGTH = 1_200;
+const MAX_SPLIT_DEPTH = 3;
+
 function chunkText(text: string, size: number): string[] {
   const chunks: string[] = [];
   for (let i = 0; i < text.length; i += size) {
@@ -143,6 +147,7 @@ async function extractTransactionsFromChunk(
   chunk: string,
   chunkIndex: number,
   totalChunks: number,
+  depth = 0,
 ): Promise<Transaction[]> {
   const systemPrompt = `
 You are a financial data extraction assistant.
@@ -169,12 +174,26 @@ ${chunk}
 Return: { "transactions": [...] }
   `.trim();
 
-  const responseText = await generateText({
+  const { text: responseText, finishReason } = await generateText({
     system: systemPrompt,
     prompt: userPrompt,
-    maxTokens: 2000,
+    maxTokens: 1500,
     temperature: 0.1,
   });
+
+  if (
+    finishReason === 'length' &&
+    chunk.length > MIN_SPLIT_LENGTH &&
+    depth < MAX_SPLIT_DEPTH
+  ) {
+    const midpoint = Math.floor(chunk.length / 2);
+    const first = chunk.slice(0, midpoint);
+    const second = chunk.slice(midpoint);
+    return [
+      ...(await extractTransactionsFromChunk(first, chunkIndex, totalChunks, depth + 1)),
+      ...(await extractTransactionsFromChunk(second, chunkIndex, totalChunks, depth + 1)),
+    ];
+  }
 
   let parsed: unknown;
   try {
@@ -182,6 +201,15 @@ Return: { "transactions": [...] }
   } catch (error) {
     const arraySlice = extractJsonArray(responseText);
     if (!arraySlice) {
+      if (chunk.length > MIN_SPLIT_LENGTH && depth < MAX_SPLIT_DEPTH) {
+        const midpoint = Math.floor(chunk.length / 2);
+        const first = chunk.slice(0, midpoint);
+        const second = chunk.slice(midpoint);
+        return [
+          ...(await extractTransactionsFromChunk(first, chunkIndex, totalChunks, depth + 1)),
+          ...(await extractTransactionsFromChunk(second, chunkIndex, totalChunks, depth + 1)),
+        ];
+      }
       console.error('Failed to parse chunk response as JSON:', error);
       console.error('Raw chunk response:', responseText);
       return [];

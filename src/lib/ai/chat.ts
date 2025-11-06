@@ -63,7 +63,12 @@ function logResponse(targetProvider: Provider, model: string, durationMs: number
   );
 }
 
-export async function generateText(options: GenerateOptions): Promise<string> {
+type GenerateResult = {
+  text: string;
+  finishReason: string | null;
+};
+
+export async function generateText(options: GenerateOptions): Promise<GenerateResult> {
   const { system, prompt, maxTokens = 4096, temperature = 0.2 } = options;
   const start = Date.now();
 
@@ -89,7 +94,7 @@ export async function generateText(options: GenerateOptions): Promise<string> {
       const textBlocks = response.content.filter((part): part is TextBlock => part.type === 'text');
       const text = textBlocks.map(part => part.text).join('\n').trim();
       logResponse('anthropic', model, Date.now() - start, text.length);
-      return text;
+      return { text, finishReason: response.stop_reason ?? null };
     } catch (error) {
       console.error(`[AI] Anthropic request failed`, error);
       throw error;
@@ -112,9 +117,11 @@ export async function generateText(options: GenerateOptions): Promise<string> {
       response_format: { type: 'json_object' },
     });
 
-    const text = response.choices[0]?.message?.content?.trim() ?? '';
+    const choice = response.choices[0];
+    const text = choice?.message?.content?.trim() ?? '';
+    const finishReason = choice?.finish_reason ?? null;
     logResponse('openai', model, Date.now() - start, text.length);
-    return text;
+    return { text, finishReason };
   } catch (error) {
     console.error(`[AI] OpenAI request failed`, error);
     throw error;
