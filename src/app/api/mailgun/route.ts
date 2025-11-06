@@ -1,7 +1,11 @@
 import '@/lib/setup-node-warnings';
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTransactionDetails, type Transaction } from '@/ai/flows/extract-transaction-details';
-import { getWebhookConfig as fetchWebhookConfig, saveEmailWithTransactions } from '@/lib/storage';
+import {
+  getWebhookConfig as fetchWebhookConfig,
+  markTransactionsDelivered,
+  saveEmailWithTransactions,
+} from '@/lib/storage';
 import { sendFailureEmail } from '@/lib/notifications/email';
 
 export const runtime = 'nodejs';
@@ -129,6 +133,17 @@ async function sendWebhookWithRetry(url: string, payload: unknown, maxRetries = 
   throw lastError;
 }
 
+const DEFAULT_WEBHOOK_CHUNK_SIZE = 50;
+
+function chunkItems<T>(items: T[], chunkSize: number): T[][] {
+  if (chunkSize <= 0) return [items];
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { fields, files } = await parseMailgunRequest(request);
@@ -219,7 +234,7 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    await saveEmailWithTransactions(
+    const { emailId, pendingTransactions, totalTransactions } = await saveEmailWithTransactions(
       {
         subject: emailData.subject,
         from: emailData.from,
@@ -232,18 +247,35 @@ export async function POST(request: NextRequest) {
       transactions,
     );
 
+    let deliveredCount = 0;
     try {
       const webhookConfig = await fetchWebhookConfig();
       if (webhookConfig?.enabled && webhookConfig?.url) {
-        const payload = {
-          transactions,
-          email: {
-            subject: emailData.subject,
-            from: emailData.from,
-            timestamp: emailData.timestamp,
-          },
-        };
-        await sendWebhookWithRetry(webhookConfig.url, payload);
+        if (!pendingTransactions.length) {
+          console.log('No new transactions to forward (all already delivered).');
+        } else {
+          const chunkSize =
+            Number.parseInt(process.env.WEBHOOK_CHUNK_SIZE ?? '', 10) || DEFAULT_WEBHOOK_CHUNK_SIZE;
+          const chunks = chunkItems(pendingTransactions, chunkSize);
+
+          for (const chunk of chunks) {
+            const payload = {
+              transactions: chunk.map(item => item.transaction),
+              email: {
+                subject: emailData.subject,
+                from: emailData.from,
+                timestamp: emailData.timestamp,
+              },
+            };
+
+            await sendWebhookWithRetry(webhookConfig.url, payload);
+            await markTransactionsDelivered(
+              chunk.map(item => item.key),
+              emailId,
+            );
+            deliveredCount += chunk.length;
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to forward webhook payload:', error);
@@ -251,8 +283,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      transactionsFound: transactions.length,
-      message: 'Transactions extracted successfully.',
+      transactionsFound: totalTransactions,
+      forwarded: deliveredCount,
+      message: deliveredCount
+        ? `Delivered ${deliveredCount} new transaction(s).`
+        : 'Transactions stored locally; nothing new to forward.',
     });
   } catch (error) {
     console.error('Mailgun webhook processing failed:', error);

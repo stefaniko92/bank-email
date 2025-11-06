@@ -53,8 +53,14 @@ async function runSchemaMigrations() {
     )
   `;
 
+  await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS transaction_key TEXT`;
+  await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS transaction_signature TEXT`;
+
   await sql`
     CREATE INDEX IF NOT EXISTS idx_transactions_email_id ON transactions (email_id)
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_transactions_transaction_key ON transactions (transaction_key)
   `;
 
   await sql`
@@ -64,6 +70,23 @@ async function runSchemaMigrations() {
       enabled BOOLEAN DEFAULT FALSE,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS transaction_delivery_state (
+      transaction_key TEXT PRIMARY KEY,
+      signature TEXT NOT NULL,
+      delivered_at TIMESTAMPTZ,
+      first_email_id TEXT,
+      last_email_id TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_transaction_delivery_delivered
+    ON transaction_delivery_state (delivered_at)
   `;
 }
 

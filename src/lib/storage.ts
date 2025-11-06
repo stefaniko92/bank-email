@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Transaction } from '@/ai/flows/extract-transaction-details';
+import { buildTransactionDedupMetadata } from './transactions';
 import { ensureSchema, getSqlClient } from './db';
 
 type EmailMetadata = {
@@ -16,6 +17,11 @@ type EmailMetadata = {
   }>;
 };
 
+export type PendingTransaction = {
+  transaction: Transaction;
+  key: string;
+};
+
 export async function saveEmailWithTransactions(
   metadata: EmailMetadata,
   transactions: Transaction[],
@@ -24,6 +30,7 @@ export async function saveEmailWithTransactions(
   const sql = getSqlClient();
 
   const emailId = metadata.messageId?.trim() !== '' ? metadata.messageId! : randomUUID();
+  const pending: PendingTransaction[] = [];
 
   await sql`
     INSERT INTO emails (id, message_id, subject, sender, recipient, body, timestamp, attachments)
@@ -53,6 +60,31 @@ export async function saveEmailWithTransactions(
   `;
 
   for (const tx of transactions) {
+    const dedup = buildTransactionDedupMetadata(tx);
+    const deliveryState = await sql`
+      INSERT INTO transaction_delivery_state (
+        transaction_key,
+        signature,
+        first_email_id,
+        last_email_id
+      )
+      VALUES (
+        ${dedup.key},
+        ${dedup.signature},
+        ${emailId},
+        ${emailId}
+      )
+      ON CONFLICT (transaction_key)
+      DO UPDATE SET
+        last_email_id = EXCLUDED.last_email_id,
+        updated_at = NOW()
+      RETURNING delivered_at IS NULL AS needs_delivery
+    ` as Array<{ needs_delivery: boolean }>;
+
+    if (deliveryState[0]?.needs_delivery ?? true) {
+      pending.push({ transaction: tx, key: dedup.key });
+    }
+
     await sql`
       INSERT INTO transactions (
         id,
@@ -61,7 +93,9 @@ export async function saveEmailWithTransactions(
         iznos_odobrenja,
         poziv_na_broj_odobrenja,
         referentna_oznaka,
-        datum_knjizenja
+        datum_knjizenja,
+        transaction_key,
+        transaction_signature
       )
       VALUES (
         ${randomUUID()},
@@ -70,10 +104,35 @@ export async function saveEmailWithTransactions(
         ${tx.iznosOdobrenja},
         ${tx.pozivNaBrojOdobrenja},
         ${tx.referentnaOznaka},
-        ${tx.datumKnjizenja}
+        ${tx.datumKnjizenja},
+        ${dedup.key},
+        ${dedup.signature}
       )
     `;
   }
+
+  return {
+    emailId,
+    pendingTransactions: pending,
+    totalTransactions: transactions.length,
+  };
+}
+
+export async function markTransactionsDelivered(transactionKeys: string[], emailId: string) {
+  if (!transactionKeys.length) {
+    return;
+  }
+  await ensureSchema();
+  const sql = getSqlClient();
+
+  await sql`
+    UPDATE transaction_delivery_state
+    SET
+      delivered_at = NOW(),
+      last_email_id = ${emailId},
+      updated_at = NOW()
+    WHERE transaction_key = ANY(${transactionKeys})
+  `;
 }
 
 export async function getWebhookConfig() {
