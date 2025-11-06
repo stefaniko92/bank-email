@@ -2,6 +2,7 @@ import '@/lib/setup-node-warnings';
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTransactionDetails, type Transaction } from '@/ai/flows/extract-transaction-details';
 import { getWebhookConfig as fetchWebhookConfig, saveEmailWithTransactions } from '@/lib/storage';
+import { sendFailureEmail } from '@/lib/notifications/email';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -167,10 +168,37 @@ export async function POST(request: NextRequest) {
         transactions.push(...extracted);
       } catch (error) {
         console.error(`Failed to process attachment ${file.filename}:`, error);
+        await sendFailureEmail({
+          subject: `PDF extraction failed for ${file.filename}`,
+          body: [
+            `File name: ${file.filename}`,
+            `File size: ${file.size} bytes`,
+            `Content type: ${file.contentType}`,
+            '',
+            `Error: ${error instanceof Error ? error.message : String(error)}`,
+            '',
+            `Mail from: ${messageDetails.from}`,
+            `Mail subject: ${messageDetails.subject}`,
+            `Mail messageId: ${messageDetails.messageId}`,
+          ].join('\n'),
+        });
       }
     }
 
     if (!transactions.length) {
+      if (pdfFiles.length > 0) {
+        await sendFailureEmail({
+          subject: `No transactions extracted for ${messageDetails.subject || 'email without subject'}`,
+          body: [
+            'Extraction completed without any transactions.',
+            '',
+            `From: ${messageDetails.from}`,
+            `To: ${messageDetails.to}`,
+            `Subject: ${messageDetails.subject}`,
+            `Message ID: ${messageDetails.messageId}`,
+          ].join('\n'),
+        });
+      }
       return NextResponse.json({
         success: true,
         transactionsFound: 0,

@@ -37,6 +37,11 @@ This repository hosts a Next.js application that ingests bank-statement emails, 
 | `OPENAI_MODEL`       | optional  | Defaults to `gpt-4o-mini`. |
 | `ANTHROPIC_API_KEY`  | when needed | Only if `AI_PROVIDER=anthropic`. |
 | `ANTHROPIC_MODEL`    | optional  | Defaults to `claude-3-5-sonnet-latest`. |
+| `AWS_ACCESS_KEY_ID`  | optional  | Required to send SES failure notifications. |
+| `AWS_SECRET_ACCESS_KEY` | optional | Pair with `AWS_ACCESS_KEY_ID`. |
+| `AWS_REGION`         | optional  | SES region (e.g., `eu-central-1`). |
+| `SES_FROM_EMAIL`     | optional  | Verified SES sender address. |
+| `SES_TO_EMAIL`       | optional  | Destination for failure alerts. |
 
 For Mailgun → Vercel migration, configure Mailgun to hit `https://<project>.vercel.app/api/mailgun`.
 
