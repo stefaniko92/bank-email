@@ -131,15 +131,26 @@ function extractJsonArray(raw: string): unknown[] | null {
   }
 }
 
-const CHUNK_SIZE = 3_500;
-const MIN_SPLIT_LENGTH = 1_200;
-const MAX_SPLIT_DEPTH = 3;
+const CHUNK_SIZE = 1_800;
+const MIN_SPLIT_LENGTH = 800;
+const MAX_SPLIT_DEPTH = 5;
 
 function chunkText(text: string, size: number): string[] {
   const chunks: string[] = [];
-  for (let i = 0; i < text.length; i += size) {
-    chunks.push(text.slice(i, i + size));
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    let end = Math.min(cursor + size, text.length);
+    if (end < text.length) {
+      const newline = text.lastIndexOf('\n', end);
+      if (newline > cursor + size * 0.5) {
+        end = newline;
+      }
+    }
+    chunks.push(text.slice(cursor, end));
+    cursor = end;
   }
+
   return chunks;
 }
 
@@ -148,7 +159,12 @@ async function extractTransactionsFromChunk(
   chunkIndex: number,
   totalChunks: number,
   depth = 0,
+  label?: string,
 ): Promise<Transaction[]> {
+  const chunkLabel =
+    label ??
+    `chunk ${chunkIndex + 1}/${totalChunks}${depth ? ` split-${depth}` : ''}`;
+  console.log(`[AI] Processing ${chunkLabel}, length=${chunk.length}`);
   const systemPrompt = `
 You are a financial data extraction assistant.
 Return ONLY JSON. Each transaction must include:
@@ -190,8 +206,20 @@ Return: { "transactions": [...] }
     const first = chunk.slice(0, midpoint);
     const second = chunk.slice(midpoint);
     return [
-      ...(await extractTransactionsFromChunk(first, chunkIndex, totalChunks, depth + 1)),
-      ...(await extractTransactionsFromChunk(second, chunkIndex, totalChunks, depth + 1)),
+      ...(await extractTransactionsFromChunk(
+        first,
+        chunkIndex,
+        totalChunks,
+        depth + 1,
+        `${chunkLabel}-a`,
+      )),
+      ...(await extractTransactionsFromChunk(
+        second,
+        chunkIndex,
+        totalChunks,
+        depth + 1,
+        `${chunkLabel}-b`,
+      )),
     ];
   }
 
@@ -206,8 +234,20 @@ Return: { "transactions": [...] }
         const first = chunk.slice(0, midpoint);
         const second = chunk.slice(midpoint);
         return [
-          ...(await extractTransactionsFromChunk(first, chunkIndex, totalChunks, depth + 1)),
-          ...(await extractTransactionsFromChunk(second, chunkIndex, totalChunks, depth + 1)),
+          ...(await extractTransactionsFromChunk(
+            first,
+            chunkIndex,
+            totalChunks,
+            depth + 1,
+            `${chunkLabel}-a`,
+          )),
+          ...(await extractTransactionsFromChunk(
+            second,
+            chunkIndex,
+            totalChunks,
+            depth + 1,
+            `${chunkLabel}-b`,
+          )),
         ];
       }
       console.error('Failed to parse chunk response as JSON:', error);

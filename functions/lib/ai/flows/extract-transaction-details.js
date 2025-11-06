@@ -135,15 +135,22 @@ Example output format (respond with ONLY this format, no other text):
                     if (DEBUG_MODE) {
                         console.log(`🔍 DEBUG: Reference number parts for transaction ${i + 1}:`, refParts);
                     }
-                    // Check if the reference number is truncated (missing last two digits)
-                    if (refParts.length === 4 && refParts[3].length === 4) {
-                        // Extract month from datumKnjizenja (format: DD.MM.YYYY)
-                        const dateParts = result.data.datumKnjizenja.split('.');
-                        if (dateParts.length === 3) {
-                            const month = dateParts[1];
-                            // Fix the truncated reference number by adding the month
-                            result.data.pozivNaBrojOdobrenja = `${refParts[0]}-${refParts[1]}-${refParts[2]}-${refParts[3]}${month}`;
-                            console.log('🔧 Fixed truncated reference number:', result.data.pozivNaBrojOdobrenja);
+                    // Attempt to reconstruct a truncated YYYYMM suffix using the booking date
+                    if (refParts.length >= 4) {
+                        const dateParts = result.data.datumKnjizenja.split('.').map(part => part.trim());
+                        const [, monthStr, yearStr] = dateParts;
+                        const normalizedMonth = monthStr && monthStr.length > 0 ? monthStr.padStart(2, '0') : null;
+                        const normalizedYear = yearStr && yearStr.length === 4 ? yearStr : null;
+                        const expectedYearMonth = normalizedYear && normalizedMonth ? `${normalizedYear}${normalizedMonth}` : null;
+                        if (expectedYearMonth) {
+                            const lastIndex = refParts.length - 1;
+                            const lastPart = refParts[lastIndex];
+                            const isNumeric = /^\d+$/.test(lastPart);
+                            if (!isNumeric || lastPart.length < 6) {
+                                refParts[lastIndex] = expectedYearMonth;
+                                result.data.pozivNaBrojOdobrenja = refParts.join('-');
+                                console.log('🔧 Normalized reference number using booking date:', result.data.pozivNaBrojOdobrenja);
+                            }
                         }
                     }
                     // More lenient validation - accept if it has dashes and reasonable length

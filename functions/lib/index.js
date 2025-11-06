@@ -44,6 +44,35 @@ async function getWebhookConfig() {
     lastConfigFetch = now;
     return webhookConfigCache;
 }
+async function retryWebhookSend(webhookUrl, payload, maxRetries = 5) {
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            console.log(`🚀 Webhook attempt ${attempt}/${maxRetries} to ${webhookUrl}`);
+            await axios_1.default.post(webhookUrl, payload, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 30000 // Increased timeout to 30 seconds for hibernating apps
+            });
+            console.log(`✅ Webhook sent successfully on attempt ${attempt}`);
+            return;
+        }
+        catch (error) {
+            lastError = error;
+            const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
+            const isConnectionError = error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND';
+            if (attempt < maxRetries && (isTimeout || isConnectionError)) {
+                // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+                const delay = Math.min(2000 * Math.pow(2, attempt - 1), 30000);
+                console.warn(`⏳ Webhook attempt ${attempt} failed (${error.message}), retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue;
+            }
+            // If it's the last attempt or a non-retryable error, throw
+            throw error;
+        }
+    }
+    throw lastError;
+}
 exports.emailReceive = (0, https_1.onRequest)({
     timeoutSeconds: 540,
     memory: '1GiB',
@@ -150,16 +179,13 @@ exports.emailReceive = (0, https_1.onRequest)({
                             timestamp: emailData.timestamp
                         }
                     }, null, 2));
-                    await axios_1.default.post(webhookConfig.url, {
+                    await retryWebhookSend(webhookConfig.url, {
                         transactions,
                         email: {
                             subject: emailData.subject,
                             from: emailData.from,
                             timestamp: emailData.timestamp
                         }
-                    }, {
-                        headers: { 'Content-Type': 'application/json' },
-                        timeout: 10000
                     });
                     console.log('✅ Webhook sent successfully');
                 }
