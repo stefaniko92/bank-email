@@ -79,31 +79,55 @@ function formatAmount(raw: string): string {
 }
 
 function normalizePozivNaBroj(raw: string): string {
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length === 14) {
-    return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5, 8)}-${digits.slice(8, 14)}`;
+  const cleaned = raw.replace(/\s+/g, ' ').trim();
+  if (!cleaned) {
+    return 'N/A';
   }
-  if (digits.length === 12) {
-    return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5, 8)}-${digits.slice(8, 12)}`;
+
+  const dashedMatch = cleaned.match(/\b\d{2}-\d{3}-\d{3}-\d{4,6}\b/);
+  if (dashedMatch) {
+    return dashedMatch[0];
   }
+
+  const digits = cleaned.replace(/\D/g, '');
+  if (digits.length >= 12) {
+    const sliceLength = Math.min(digits.length, 14);
+    const base = digits.slice(0, sliceLength);
+    const first = base.slice(0, 2);
+    const second = base.slice(2, 5);
+    const third = base.slice(5, 8);
+    const fourth = base.slice(8);
+    if (first && second && third && fourth.length >= 4) {
+      return [first, second, third, fourth].join('-');
+    }
+  }
+
   return 'N/A';
 }
 
 function normalizeReferentnaOznaka(raw: string): string {
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length >= 12) {
-    const normalized = digits.slice(0, 12);
-    return `${normalized.slice(0, 2)}-${normalized.slice(2, 5)}-${normalized.slice(5, 8)}-${normalized.slice(8, 12)}`;
-  }
-  return 'N/A';
+  const cleaned = raw.replace(/\s+/g, ' ').trim();
+  return cleaned || 'N/A';
 }
 
 function normalizeDate(raw: string): string {
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length === 8) {
-    return `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4, 8)}`;
+  const cleaned = raw.replace(/\s+/g, ' ').trim();
+  if (!cleaned) {
+    return 'N/A';
   }
-  return raw.trim();
+
+  const match = cleaned.match(/(\d{2}\.\d{2}\.\d{4})/);
+  if (match) {
+    return match[1];
+  }
+
+  const digits = cleaned.replace(/\D/g, '');
+  if (digits.length >= 8) {
+    const sliced = digits.slice(0, 8);
+    return `${sliced.slice(0, 2)}.${sliced.slice(2, 4)}.${sliced.slice(4, 8)}`;
+  }
+
+  return 'N/A';
 }
 
 function isObjectWithTransactions(value: unknown): value is { transactions: unknown } {
