@@ -60,12 +60,13 @@ export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Tran
 }
 
 function sanitizeTransaction(transaction: Transaction): Transaction {
+  const normalizedDate = normalizeDate(transaction.datumKnjizenja);
   return {
     nazivSedistePrimaoca: transaction.nazivSedistePrimaoca.trim(),
     iznosOdobrenja: formatAmount(transaction.iznosOdobrenja),
-    pozivNaBrojOdobrenja: normalizePozivNaBroj(transaction.pozivNaBrojOdobrenja),
+    pozivNaBrojOdobrenja: normalizePozivNaBroj(transaction.pozivNaBrojOdobrenja, normalizedDate),
     referentnaOznaka: normalizeReferentnaOznaka(transaction.referentnaOznaka),
-    datumKnjizenja: normalizeDate(transaction.datumKnjizenja),
+    datumKnjizenja: normalizedDate,
   };
 }
 
@@ -78,11 +79,13 @@ function formatAmount(raw: string): string {
   return numeric.toLocaleString('sr-RS', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function normalizePozivNaBroj(raw: string): string {
-  const cleaned = raw.replace(/\s+/g, ' ').trim();
+function normalizePozivNaBroj(raw: string, bookingDate?: string): string {
+  let cleaned = raw.replace(/\s+/g, ' ').trim();
   if (!cleaned) {
     return 'N/A';
   }
+
+  cleaned = cleaned.replace(/\(\d+\)/g, ' ').replace(/\s+/g, ' ').trim();
 
   const dashedMatch = cleaned.match(/\b\d{2}-\d{3}-\d{3}-\d{4,6}\b/);
   if (dashedMatch) {
@@ -90,19 +93,25 @@ function normalizePozivNaBroj(raw: string): string {
   }
 
   const digits = cleaned.replace(/\D/g, '');
-  if (digits.length >= 12) {
-    const sliceLength = Math.min(digits.length, 14);
-    const base = digits.slice(0, sliceLength);
-    const first = base.slice(0, 2);
-    const second = base.slice(2, 5);
-    const third = base.slice(5, 8);
-    const fourth = base.slice(8);
-    if (first && second && third && fourth.length >= 4) {
-      return [first, second, third, fourth].join('-');
-    }
+  if (digits.length < 10) {
+    return 'N/A';
   }
 
-  return 'N/A';
+  const first = digits.slice(0, 2);
+  const second = digits.slice(2, 5);
+  const third = digits.slice(5, 8);
+  let remainder = digits.slice(8);
+
+  if (!first || !second || !third || !remainder) {
+    return 'N/A';
+  }
+
+  const formattedSuffix = normalizeYearMonthSuffix(remainder, bookingDate);
+  if (!formattedSuffix) {
+    return 'N/A';
+  }
+
+  return [first, second, third, formattedSuffix].join('-');
 }
 
 function normalizeReferentnaOznaka(raw: string): string {
@@ -128,6 +137,47 @@ function normalizeDate(raw: string): string {
   }
 
   return 'N/A';
+}
+
+function normalizeYearMonthSuffix(value: string, bookingDate?: string): string | null {
+  if (!value) {
+    return null;
+  }
+
+  let suffix = value;
+  if (suffix.length > 6) {
+    suffix = suffix.slice(0, 6);
+  }
+
+  if (suffix.length === 6) {
+    return suffix;
+  }
+
+  if (suffix.length === 5) {
+    const year = suffix.slice(0, 4);
+    const monthDigit = suffix.slice(4);
+    return `${year}${monthDigit.padStart(2, '0')}`;
+  }
+
+  if (suffix.length === 4) {
+    const month = extractMonthFromDate(bookingDate) ?? getCurrentMonth();
+    return `${suffix}${month}`;
+  }
+
+  return null;
+}
+
+function extractMonthFromDate(date?: string): string | null {
+  if (!date) {
+    return null;
+  }
+  const match = date.match(/\d{2}\.(\d{2})\.\d{4}/);
+  return match ? match[1] : null;
+}
+
+function getCurrentMonth(): string {
+  const now = new Date();
+  return String(now.getMonth() + 1).padStart(2, '0');
 }
 
 function isObjectWithTransactions(value: unknown): value is { transactions: unknown } {
