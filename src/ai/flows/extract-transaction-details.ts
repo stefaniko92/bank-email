@@ -251,17 +251,48 @@ const CHUNK_SIZE = 1_800;
 const MIN_SPLIT_LENGTH = 800;
 const MAX_SPLIT_DEPTH = 5;
 
-function chunkText(text: string, size: number): string[] {
+const TRANSACTION_BOUNDARY = /\n\d{1,3}\n/g;
+
+function findBoundaryIndex(text: string, start: number, tentativeEnd: number): number | null {
+  const slice = text.slice(start, tentativeEnd);
+  let match: RegExpExecArray | null = null;
+  let lastMatchEnd: number | null = null;
+
+  while ((match = TRANSACTION_BOUNDARY.exec(slice))) {
+    lastMatchEnd = match.index + match[0].length;
+  }
+
+  if (lastMatchEnd === null) {
+    return null;
+  }
+
+  const absoluteEnd = start + lastMatchEnd;
+  if (absoluteEnd <= start || absoluteEnd >= tentativeEnd) {
+    return null;
+  }
+
+  return absoluteEnd;
+}
+
+export function chunkText(text: string, size: number): string[] {
   const chunks: string[] = [];
   let cursor = 0;
 
   while (cursor < text.length) {
     let end = Math.min(cursor + size, text.length);
     if (end < text.length) {
-      const newline = text.lastIndexOf('\n', end);
-      if (newline > cursor + size * 0.5) {
-        end = newline;
+      const boundaryEnd = findBoundaryIndex(text, cursor, end);
+      if (boundaryEnd && boundaryEnd > cursor + size * 0.3) {
+        end = boundaryEnd;
+      } else {
+        const newline = text.lastIndexOf('\n', end);
+        if (newline > cursor + size * 0.5) {
+          end = newline;
+        }
       }
+    }
+    if (end === cursor) {
+      end = Math.min(cursor + size, text.length);
     }
     chunks.push(text.slice(cursor, end));
     cursor = end;
