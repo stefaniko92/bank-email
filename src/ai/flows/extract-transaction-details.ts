@@ -50,7 +50,14 @@ function cleanJsonResponse(raw: string): string {
 
 export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Transaction[]> {
   if (shouldUseDocumentMode()) {
-    return processDocumentExtraction(pdfBuffer);
+    try {
+      return await processDocumentExtraction(pdfBuffer);
+    } catch (error) {
+      console.warn(
+        '[AI] Document-mode extraction failed, falling back to text chunk flow:',
+        error,
+      );
+    }
   }
 
   const pdfText = await extractTextFromPdf(pdfBuffer);
