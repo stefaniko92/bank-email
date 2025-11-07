@@ -54,6 +54,12 @@ test('rebuilds dashed references when only digits remain', () => {
   assert.equal(normalized, '11-212-142-202511');
 });
 
+test('digit-only strings keep workspace id length intact', () => {
+  const raw = '(00)         1217453202511';
+  const normalized = normalizePozivNaBroj(raw, '03.11.2025');
+  assert.equal(normalized, '12-174-53-202511');
+});
+
 test('completeYearMonthSuffix uses the booking date month when suffix is just the year', () => {
   const result = completeYearMonthSuffix('2025', '', '03.11.2025');
   assert.equal(result, '202511');

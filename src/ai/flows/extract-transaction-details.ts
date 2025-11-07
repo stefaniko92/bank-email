@@ -145,7 +145,7 @@ export function normalizePozivNaBroj(raw: string, bookingDate?: string): string 
 
   cleaned = cleaned.replace(/\(\d+\)/g, ' ').replace(/\s+/g, ' ').trim();
 
-  const dashedMatch = cleaned.match(/(\d{2})-(\d{3})-(\d{3})-(\d{2,6})/);
+  const dashedMatch = cleaned.match(/(\d{2})-(\d{3})-(\d{1,4})-(\d{2,6})/);
   if (dashedMatch) {
     const [, part1, part2, part3, suffixRaw] = dashedMatch;
     const trailingDigits = cleaned
@@ -162,19 +162,28 @@ export function normalizePozivNaBroj(raw: string, bookingDate?: string): string 
 
   const first = digits.slice(0, 2);
   const second = digits.slice(2, 5);
-  const third = digits.slice(5, 8);
-  let remainder = digits.slice(8);
+  const remaining = digits.slice(5);
 
-  if (!first || !second || !third || !remainder) {
+  const maxThirdLen = Math.min(4, remaining.length - 4);
+  if (maxThirdLen < 1) {
     return 'N/A';
   }
-
-  const formattedSuffix = completeYearMonthSuffix(remainder, '', bookingDate);
-  if (!formattedSuffix) {
-    return 'N/A';
+  for (let thirdLen = 1; thirdLen <= maxThirdLen; thirdLen++) {
+    const thirdCandidate = remaining.slice(0, thirdLen);
+    const suffixRaw = remaining.slice(thirdLen);
+    if (!thirdCandidate || !suffixRaw) {
+      continue;
+    }
+    if (suffixRaw.length < 4 || suffixRaw.length > 6) {
+      continue;
+    }
+    const formattedSuffix = completeYearMonthSuffix(suffixRaw, '', bookingDate);
+    if (formattedSuffix) {
+      return [first, second, thirdCandidate, formattedSuffix].join('-');
+    }
   }
 
-  return [first, second, third, formattedSuffix].join('-');
+  return 'N/A';
 }
 
 function normalizeReferentnaOznaka(raw: string): string {
