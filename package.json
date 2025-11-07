@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test:extraction": "tsx src/scripts/test-enhanced-extraction.ts"
+    "test:extraction": "tsx src/scripts/test-enhanced-extraction.ts",
+    "test:references": "node scripts/run-ts-tests.js src/ai/flows/__tests__/reference-normalizer.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.1",

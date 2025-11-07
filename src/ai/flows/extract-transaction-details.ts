@@ -59,6 +59,34 @@ export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Tran
   return results;
 }
 
+type RawTransactionLike = Partial<Record<keyof Transaction, unknown>>;
+
+function toSafeString(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (typeof value === 'number' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+  return JSON.stringify(value);
+}
+
+function coerceModelTransaction(item: RawTransactionLike): Transaction {
+  return {
+    nazivSedistePrimaoca: toSafeString(item.nazivSedistePrimaoca),
+    iznosOdobrenja: toSafeString(item.iznosOdobrenja),
+    pozivNaBrojOdobrenja: toSafeString(item.pozivNaBrojOdobrenja),
+    referentnaOznaka: toSafeString(item.referentnaOznaka),
+    datumKnjizenja: toSafeString(item.datumKnjizenja),
+  };
+}
+
 function sanitizeTransaction(transaction: Transaction): Transaction {
   const normalizedDate = normalizeDate(transaction.datumKnjizenja);
   return {
@@ -79,7 +107,7 @@ function formatAmount(raw: string): string {
   return numeric.toLocaleString('sr-RS', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function normalizePozivNaBroj(raw: string, bookingDate?: string): string {
+export function normalizePozivNaBroj(raw: string, bookingDate?: string): string {
   let cleaned = raw.replace(/\s+/g, ' ').trim();
   if (!cleaned) {
     return 'N/A';
@@ -87,9 +115,14 @@ function normalizePozivNaBroj(raw: string, bookingDate?: string): string {
 
   cleaned = cleaned.replace(/\(\d+\)/g, ' ').replace(/\s+/g, ' ').trim();
 
-  const dashedMatch = cleaned.match(/\b\d{2}-\d{3}-\d{3}-\d{4,6}\b/);
+  const dashedMatch = cleaned.match(/(\d{2})-(\d{3})-(\d{3})-(\d{2,6})/);
   if (dashedMatch) {
-    return dashedMatch[0];
+    const [, part1, part2, part3, suffixRaw] = dashedMatch;
+    const trailingDigits = cleaned
+      .slice((dashedMatch.index ?? 0) + dashedMatch[0].length)
+      .replace(/\D/g, '');
+    const completedSuffix = completeYearMonthSuffix(suffixRaw, trailingDigits, bookingDate);
+    return completedSuffix ? `${part1}-${part2}-${part3}-${completedSuffix}` : 'N/A';
   }
 
   const digits = cleaned.replace(/\D/g, '');
@@ -106,7 +139,7 @@ function normalizePozivNaBroj(raw: string, bookingDate?: string): string {
     return 'N/A';
   }
 
-  const formattedSuffix = normalizeYearMonthSuffix(remainder, bookingDate);
+  const formattedSuffix = completeYearMonthSuffix(remainder, '', bookingDate);
   if (!formattedSuffix) {
     return 'N/A';
   }
@@ -139,7 +172,7 @@ function normalizeDate(raw: string): string {
   return 'N/A';
 }
 
-function normalizeYearMonthSuffix(value: string, bookingDate?: string): string | null {
+export function completeYearMonthSuffix(value: string, trailingDigits: string, bookingDate?: string): string | null {
   if (!value) {
     return null;
   }
@@ -149,22 +182,31 @@ function normalizeYearMonthSuffix(value: string, bookingDate?: string): string |
     suffix = suffix.slice(0, 6);
   }
 
-  if (suffix.length === 6) {
-    return suffix;
+  if (suffix.length < 6 && trailingDigits) {
+    const needed = 6 - suffix.length;
+    suffix += trailingDigits.slice(0, needed);
   }
 
   if (suffix.length === 5) {
     const year = suffix.slice(0, 4);
-    const monthDigit = suffix.slice(4);
-    return `${year}${monthDigit.padStart(2, '0')}`;
+    const monthCandidate = suffix.slice(4);
+    const inferredMonth =
+      monthCandidate.length === 2
+        ? monthCandidate
+        : extractMonthFromDate(bookingDate) ?? getCurrentMonth();
+    suffix = `${year}${inferredMonth.padStart(2, '0')}`;
   }
 
   if (suffix.length === 4) {
     const month = extractMonthFromDate(bookingDate) ?? getCurrentMonth();
-    return `${suffix}${month}`;
+    suffix = `${suffix}${month}`;
   }
 
-  return null;
+  if (suffix.length < 6) {
+    suffix = suffix.padEnd(6, '0');
+  }
+
+  return suffix.length === 6 ? suffix : null;
 }
 
 function extractMonthFromDate(date?: string): string | null {
@@ -332,11 +374,15 @@ Return: { "transactions": [...] }
   }
 
   if (isObjectWithTransactions(parsed)) {
-    return parsed.transactions as Transaction[];
+    const coerced = (parsed.transactions as RawTransactionLike[]).map(coerceModelTransaction);
+    console.log(`[AI] Extracted ${coerced.length} transactions from ${chunkLabel}`);
+    return coerced;
   }
 
   if (Array.isArray(parsed)) {
-    return parsed as Transaction[];
+    const coerced = (parsed as RawTransactionLike[]).map(coerceModelTransaction);
+    console.log(`[AI] Extracted ${coerced.length} transactions from ${chunkLabel}`);
+    return coerced;
   }
 
   console.warn('Unexpected chunk response shape:', parsed);
