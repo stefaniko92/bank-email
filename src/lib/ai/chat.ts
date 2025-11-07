@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
-import type { TextBlock } from '@anthropic-ai/sdk/resources/messages';
+import type { MessageParam, TextBlock } from '@anthropic-ai/sdk/resources/messages';
 
 type Provider = 'openai' | 'anthropic';
 
@@ -33,9 +33,10 @@ function getAnthropic(): Anthropic {
 
 interface GenerateOptions {
   system: string;
-  prompt: string;
+  prompt?: string;
   maxTokens?: number;
   temperature?: number;
+  anthropicMessages?: Array<MessageParam>;
 }
 
 function logRequest(targetProvider: Provider, model: string, prompt: string) {
@@ -69,13 +70,23 @@ type GenerateResult = {
 };
 
 export async function generateText(options: GenerateOptions): Promise<GenerateResult> {
-  const { system, prompt, maxTokens = 4096, temperature = 0.2 } = options;
+  const { system, prompt, maxTokens = 4096, temperature = 0.2, anthropicMessages } = options;
   const start = Date.now();
+  const preview = prompt ?? (anthropicMessages ? '[structured content]' : '');
 
   if (provider === 'anthropic') {
     const client = getAnthropic();
     const model = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-5-20250929';
-    logRequest('anthropic', model, prompt);
+    logRequest('anthropic', model, preview);
+
+    const messages =
+      anthropicMessages ??
+      [
+        {
+          role: 'user',
+          content: prompt ?? '',
+        },
+      ];
 
     try {
       const response = await client.messages.create({
@@ -83,12 +94,7 @@ export async function generateText(options: GenerateOptions): Promise<GenerateRe
         system,
         max_tokens: maxTokens,
         temperature,
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
+        messages,
       });
 
       const textBlocks = response.content.filter((part): part is TextBlock => part.type === 'text');
@@ -102,6 +108,9 @@ export async function generateText(options: GenerateOptions): Promise<GenerateRe
   }
 
   const client = getOpenAI();
+  if (!prompt) {
+    throw new Error('Prompt is required for OpenAI requests');
+  }
   const model = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
   logRequest('openai', model, prompt);
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { extractTextFromPdf } from '@/lib/pdf-utils';
 import { generateText } from '@/lib/ai/chat';
+import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 
 const TransactionSchema = z.object({
   nazivSedistePrimaoca: z.string(),
@@ -48,14 +49,17 @@ function cleanJsonResponse(raw: string): string {
 }
 
 export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Transaction[]> {
+  if (shouldUseDocumentMode()) {
+    return processDocumentExtraction(pdfBuffer);
+  }
+
   const pdfText = await extractTextFromPdf(pdfBuffer);
 
   if (!pdfText.trim()) {
     throw new Error('Unable to extract text from PDF');
   }
 
-  const useSingleChunk = shouldUseSingleChunkFlow();
-  const chunks = useSingleChunk ? [pdfText] : chunkText(pdfText, CHUNK_SIZE);
+  const chunks = chunkText(pdfText, CHUNK_SIZE);
   const results: Transaction[] = [];
   const seen = new Set<string>();
 
@@ -64,22 +68,28 @@ export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Tran
       chunks[i],
       i,
       chunks.length,
+      0,
+      undefined,
     );
 
-    for (const transaction of chunkTransactions) {
-      const sanitized = sanitizeTransaction(transaction);
-      const key = JSON.stringify(sanitized);
-      if (!seen.has(key)) {
-        seen.add(key);
-        results.push(sanitized);
-      }
-    }
+    addTransactions(results, seen, chunkTransactions);
   }
 
   return results;
 }
 
 type RawTransactionLike = Partial<Record<keyof Transaction, unknown>>;
+
+function addTransactions(target: Transaction[], seen: Set<string>, candidates: Transaction[]) {
+  for (const transaction of candidates) {
+    const sanitized = sanitizeTransaction(transaction);
+    const key = JSON.stringify(sanitized);
+    if (!seen.has(key)) {
+      seen.add(key);
+      target.push(sanitized);
+    }
+  }
+}
 
 function toSafeString(value: unknown): string {
   if (typeof value === 'string') {
@@ -273,13 +283,60 @@ const MAX_SPLIT_DEPTH = 5;
 
 const TRANSACTION_BOUNDARY = /\n\d{1,3}\n/g;
 
-function shouldUseSingleChunkFlow(): boolean {
+function shouldUseDocumentMode(): boolean {
   const provider = (process.env.AI_PROVIDER ?? 'openai').toLowerCase();
   if (provider !== 'anthropic') {
     return false;
   }
   const model = (process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-5-20250929').toLowerCase();
   return model === 'claude-sonnet-4-5-20250929';
+}
+
+async function processDocumentExtraction(pdfBuffer: Buffer): Promise<Transaction[]> {
+  const instruction = `
+Extract every credited transaction from the attached PDF bank statement.
+Return ONLY JSON in the shape { "transactions": [...] }.
+Use the exact field names shown below and keep the formatting identical to this guidance:
+${TARGET_FORMAT_GUIDANCE}
+  `.trim();
+
+  const messages: MessageParam[] = [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: 'application/pdf',
+            data: pdfBuffer.toString('base64'),
+          },
+        } as any,
+        {
+          type: 'text',
+          text: instruction,
+        },
+      ],
+    },
+  ];
+
+  const { text: responseText } = await generateText({
+    system: `
+You are a financial data extraction assistant.
+Read the attached PDF document directly and extract every transaction row.
+Return JSON only, using "N/A" for missing values.
+    `.trim(),
+    prompt: instruction,
+    anthropicMessages: messages,
+    maxTokens: 4000,
+    temperature: 0.1,
+  });
+
+  const parsedTransactions = parseResponseText(responseText, 'PDF document');
+  const results: Transaction[] = [];
+  const seen = new Set<string>();
+  addTransactions(results, seen, parsedTransactions);
+  return results;
 }
 
 function findBoundaryIndex(text: string, start: number, tentativeEnd: number): number | null {
@@ -435,18 +492,39 @@ Return: { "transactions": [...] }
     parsed = { transactions: arraySlice };
   }
 
+  return coerceParsedTransactions(parsed, chunkLabel);
+}
+
+function parseResponseText(responseText: string, contextLabel: string): Transaction[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(responseText);
+  } catch (error) {
+    const arraySlice = extractJsonArray(responseText);
+    if (!arraySlice) {
+      console.error(`Failed to parse response for ${contextLabel}:`, error);
+      console.error('Raw response:', responseText);
+      return [];
+    }
+    parsed = { transactions: arraySlice };
+  }
+
+  return coerceParsedTransactions(parsed, contextLabel);
+}
+
+function coerceParsedTransactions(parsed: unknown, contextLabel: string): Transaction[] {
   if (isObjectWithTransactions(parsed)) {
     const coerced = (parsed.transactions as RawTransactionLike[]).map(coerceModelTransaction);
-    console.log(`[AI] Extracted ${coerced.length} transactions from ${chunkLabel}`);
+    console.log(`[AI] Extracted ${coerced.length} transactions from ${contextLabel}`);
     return coerced;
   }
 
   if (Array.isArray(parsed)) {
     const coerced = (parsed as RawTransactionLike[]).map(coerceModelTransaction);
-    console.log(`[AI] Extracted ${coerced.length} transactions from ${chunkLabel}`);
+    console.log(`[AI] Extracted ${coerced.length} transactions from ${contextLabel}`);
     return coerced;
   }
 
-  console.warn('Unexpected chunk response shape:', parsed);
+  console.warn(`Unexpected response shape for ${contextLabel}:`, parsed);
   return [];
 }
