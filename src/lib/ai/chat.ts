@@ -74,7 +74,7 @@ export async function generateText(options: GenerateOptions): Promise<GenerateRe
 
   if (provider === 'anthropic') {
     const client = getAnthropic();
-    const model = process.env.ANTHROPIC_MODEL ?? 'claude-3-5-sonnet-latest';
+    const model = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-5-20250929';
     logRequest('anthropic', model, prompt);
 
     try {

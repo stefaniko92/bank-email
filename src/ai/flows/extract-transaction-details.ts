@@ -12,6 +12,25 @@ const TransactionSchema = z.object({
 
 export type Transaction = z.infer<typeof TransactionSchema>;
 
+const TARGET_FORMAT_GUIDANCE = `
+transactions => [
+  [
+    "nazivSedistePrimaoca" => "PELLEGRINI TRAVEL D.O.O., CARA DUSANA 23B, NOVA PAZOVA",
+    "iznosOdobrenja" => "6.000,00",
+    "pozivNaBrojOdobrenja" => "11-179-101-202511",
+    "referentnaOznaka" => "87000150758",
+    "datumKnjizenja" => "03.11.2025"
+  ],
+  [
+    "nazivSedistePrimaoca" => "D-DIVA, PUPINOVA 21, ZRENJANIN",
+    "iznosOdobrenja" => "4.500,00",
+    "pozivNaBrojOdobrenja" => "11-314-143-202511",
+    "referentnaOznaka" => "87000150847",
+    "datumKnjizenja" => "03.11.2025"
+  ]
+]
+`.trim();
+
 function cleanJsonResponse(raw: string): string {
   let text = raw.trim();
 
@@ -35,7 +54,8 @@ export async function extractTransactionDetails(pdfBuffer: Buffer): Promise<Tran
     throw new Error('Unable to extract text from PDF');
   }
 
-  const chunks = chunkText(pdfText, CHUNK_SIZE);
+  const useSingleChunk = shouldUseSingleChunkFlow();
+  const chunks = useSingleChunk ? [pdfText] : chunkText(pdfText, CHUNK_SIZE);
   const results: Transaction[] = [];
   const seen = new Set<string>();
 
@@ -253,6 +273,15 @@ const MAX_SPLIT_DEPTH = 5;
 
 const TRANSACTION_BOUNDARY = /\n\d{1,3}\n/g;
 
+function shouldUseSingleChunkFlow(): boolean {
+  const provider = (process.env.AI_PROVIDER ?? 'openai').toLowerCase();
+  if (provider !== 'anthropic') {
+    return false;
+  }
+  const model = (process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-5-20250929').toLowerCase();
+  return model === 'claude-sonnet-4-5-20250929';
+}
+
 function findBoundaryIndex(text: string, start: number, tentativeEnd: number): number | null {
   const slice = text.slice(start, tentativeEnd);
   let match: RegExpExecArray | null = null;
@@ -320,7 +349,8 @@ Return ONLY JSON. Each transaction must include:
 - "pozivNaBrojOdobrenja": string
 - "referentnaOznaka": string
 - "datumKnjizenja": string
-
+The expected structure mirrors the PHP-style array below, but you MUST respond with a JSON object that has a "transactions" array:
+${TARGET_FORMAT_GUIDANCE}
 Rules:
 1. Respond with a JSON object that has a "transactions" array.
 2. Include only transactions that appear in the provided text chunk.
@@ -334,6 +364,7 @@ Bank statement text (chunk ${chunkIndex + 1} of ${totalChunks}):
 ${chunk}
 >>>
 
+Every RB (row number) appearing in this chunk corresponds to exactly one transaction and must appear in the output.
 Return: { "transactions": [...] }
   `.trim();
 
