@@ -53,28 +53,61 @@ async function ensureSheetExists(
 ): Promise<void> {
   const meta = await sheets.spreadsheets.get({ spreadsheetId });
   const exists = meta.data.sheets?.some((s) => s.properties?.title === sheetName);
-  if (exists) return;
-
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [{
-        addSheet: {
-          properties: {
-            title: sheetName,
-            gridProperties: { rowCount: 1000, columnCount: 10 }
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          addSheet: {
+            properties: {
+              title: sheetName,
+              gridProperties: { rowCount: 1000, columnCount: 10 }
+            }
           }
-        }
-      }]
+        }]
     }
   });
+  }
 
-  await sheets.spreadsheets.values.update({
+  const current = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: `'${sheetName}'!A1:E1`,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [COLUMN_HEADERS] }
   });
+  const row1 = current.data.values?.[0];
+  const hasHeader = row1?.[0] === COLUMN_HEADERS[0];
+  if (hasHeader) return;
+
+  const row1Empty = !row1 || row1.every((c) => !c || !String(c).trim());
+  if (row1Empty) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${sheetName}'!A1:E1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [COLUMN_HEADERS] }
+    });
+  } else {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          insertDimension: {
+            range: {
+              sheetId: meta.data.sheets?.find((s) => s.properties?.title === sheetName)?.properties?.sheetId ?? 0,
+              dimension: 'ROWS',
+              startIndex: 0,
+              endIndex: 1,
+            }
+          }
+        }]
+      }
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${sheetName}'!A1:E1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [COLUMN_HEADERS] }
+    });
+  }
 }
 
 function createAuthFromOidc(): { auth: IdentityPoolClient } | { error: string } | null {
