@@ -227,23 +227,24 @@ export async function POST(request: NextRequest) {
     }
 
     // Google Sheets backup – runs first, before Postgres/webhook (so we have data even if downstream fails)
-    // Koristi Service Account (GOOGLE_SHEETS_CREDENTIALS_JSON), ne API key – Sheets API ne podržava API key za upis.
-    const sheetsCredentials = process.env.GOOGLE_SHEETS_CREDENTIALS_JSON;
+    // Auth: GOOGLE_SHEETS_CREDENTIALS_JSON (Service Account) ili Workload Identity Federation (GCP_* + OIDC, bez ključeva)
     const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    const hasCredentials = !!process.env.GOOGLE_SHEETS_CREDENTIALS_JSON;
+    const hasOidc = !!(process.env.GCP_PROJECT_NUMBER && process.env.GCP_SERVICE_ACCOUNT_EMAIL && process.env.GCP_WORKLOAD_IDENTITY_POOL_ID && process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID);
     console.log('[Sheets] Start:', {
-      hasCredentials: !!sheetsCredentials,
+      hasCredentials,
+      hasOidc,
       hasId: !!spreadsheetId,
       spreadsheetIdPreview: spreadsheetId ? `${spreadsheetId.slice(0, 12)}...` : '(empty)',
       txCount: transactions.length,
     });
-    if (!sheetsCredentials) console.log('[Sheets] GOOGLE_SHEETS_CREDENTIALS_JSON nije podešen (Service Account JSON)');
+    if (!hasCredentials && !hasOidc) console.log('[Sheets] Nema auth: ni GOOGLE_SHEETS_CREDENTIALS_JSON ni GCP OIDC env vars');
     if (!spreadsheetId) console.log('[Sheets] GOOGLE_SHEETS_SPREADSHEET_ID nije podešen');
     try {
-      if (sheetsCredentials && spreadsheetId && transactions.length > 0) {
+      if ((hasCredentials || hasOidc) && spreadsheetId && transactions.length > 0) {
         console.log('[Sheets] Pozivam appendTransactionsToSheet...');
         const { appended, errors } = await appendTransactionsToSheet(
           spreadsheetId,
-          sheetsCredentials,
           transactions
         );
         console.log(`[Sheets] Završeno: upisano ${appended}/${transactions.length} redova`);

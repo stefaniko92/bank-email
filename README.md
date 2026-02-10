@@ -112,7 +112,9 @@ When processing PDFs via the Firebase `emailReceive` function, extracted transac
 1. Create a Google Sheet and copy the **Spreadsheet ID** from the URL:  
    `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit`
 2. Enable the **Google Sheets API** in [Google Cloud Console](https://console.cloud.google.com/apis/library/sheets.googleapis.com) (same project as your Firebase).
-3. Create a **Service Account** (API keys do NOT work for write). Download the JSON key file.
+3. **Auth** – choose one:
+   - **Service Account JSON** – create SA, download key, paste full JSON as `GOOGLE_SHEETS_CREDENTIALS_JSON`
+   - **Workload Identity Federation (OIDC)** – no keys; use when org policy blocks SA keys. See [Vercel GCP OIDC](https://vercel.com/docs/oidc/gcp). Env: `GCP_PROJECT_NUMBER`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_WORKLOAD_IDENTITY_POOL_ID`, `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`. Enable OIDC in Vercel Project Settings.
 4. Share the spreadsheet with the service account email (e.g. `xyz@project.iam.gserviceaccount.com`).
 5. Set in `functions/.env` or Vercel/Firebase environment:
    ```env

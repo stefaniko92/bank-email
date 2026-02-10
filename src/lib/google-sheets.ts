@@ -1,9 +1,15 @@
 /**
  * Google Sheets service for appending bank transactions.
  * Organizes data by year: one sheet per year (e.g. "2025", "2026").
+ *
+ * Auth modes (bez Service Account ključeva ako je org policy blokira):
+ * 1. GOOGLE_SHEETS_CREDENTIALS_JSON – Service Account JSON key
+ * 2. Workload Identity Federation (OIDC) – GCP_* env vars + Vercel OIDC, bez ključeva
  */
 
 import { google } from 'googleapis';
+import { IdentityPoolClient } from 'google-auth-library';
+import { getVercelOidcToken } from '@vercel/oidc';
 import type { Transaction } from '@/ai/flows/extract-transaction-details';
 
 const COLUMN_HEADERS = [
@@ -74,30 +80,7 @@ async function ensureSheetExists(
   });
 }
 
-/**
- * credentialsJson: Service Account JSON key (full contents of .json file from Google Cloud Console).
- * API keys are NOT supported for Sheets write – use Service Account.
- * Share the spreadsheet with the service account email (e.g. xyz@project.iam.gserviceaccount.com).
- */
-export async function appendTransactionsToSheet(
-  spreadsheetId: string,
-  credentialsJson: string,
-  transactions: Transaction[]
-): Promise<{ appended: number; errors: string[] }> {
-  const errors: string[] = [];
-  let appended = 0;
-
-  console.log('[Sheets] appendTransactionsToSheet:', {
-    spreadsheetIdLen: spreadsheetId?.length ?? 0,
-    hasCredentials: !!credentialsJson,
-    txCount: transactions.length,
-  });
-
-  if (!spreadsheetId || !credentialsJson) {
-    console.log('[Sheets] appendTransactionsToSheet: preskakanje – prazan spreadsheetId ili GOOGLE_SHEETS_CREDENTIALS_JSON');
-    return { appended: 0, errors: [] };
-  }
-
+function createAuthFromCredentials(credentialsJson: string): { auth: InstanceType<typeof google.auth.GoogleAuth> } | { error: string } {
   let credentials: { client_email?: string; private_key?: string };
   try {
     credentials = JSON.parse(credentialsJson);
@@ -106,18 +89,101 @@ export async function appendTransactionsToSheet(
     }
   } catch (parseErr) {
     const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-    console.error('[Sheets] Neispravan GOOGLE_SHEETS_CREDENTIALS_JSON:', msg);
-    return { appended: 0, errors: [`Credentials parse: ${msg}`] };
+    return { error: msg };
   }
-
   const auth = new google.auth.GoogleAuth({
     credentials: {
       client_email: credentials.client_email,
       private_key: credentials.private_key,
     },
   });
+  return { auth };
+}
+
+function createAuthFromOidc(): { auth: IdentityPoolClient } | { error: string } | null {
+  const projectNumber = process.env.GCP_PROJECT_NUMBER;
+  const serviceAccountEmail = process.env.GCP_SERVICE_ACCOUNT_EMAIL;
+  const poolId = process.env.GCP_WORKLOAD_IDENTITY_POOL_ID;
+  const providerId = process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID;
+  if (!projectNumber || !serviceAccountEmail || !poolId || !providerId) {
+    return null;
+  }
+  try {
+    const auth = new IdentityPoolClient({
+      type: 'external_account',
+      audience: `//iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`,
+      subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
+      token_url: 'https://sts.googleapis.com/v1/token',
+      service_account_impersonation_url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccountEmail}:generateAccessToken`,
+      subject_token_supplier: {
+        getSubjectToken: async () => await getVercelOidcToken(),
+      },
+    });
+    return { auth };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { error: msg };
+  }
+}
+
+/**
+ * Append transactions to Google Sheet.
+ * Auth: GOOGLE_SHEETS_CREDENTIALS_JSON (Service Account key) ili Workload Identity Federation (GCP_* env vars).
+ * Ako org policy blokira ključeve, koristi OIDC – vidi https://vercel.com/docs/oidc/gcp
+ */
+export async function appendTransactionsToSheet(
+  spreadsheetId: string,
+  credentialsJsonOrTransactions: string | Transaction[],
+  transactions?: Transaction[]
+): Promise<{ appended: number; errors: string[] }> {
+  const errors: string[] = [];
+  let appended = 0;
+
+  // Overload: (spreadsheetId, transactions) – auth iz env
+  let txs: Transaction[];
+  let credentialsJson: string | undefined;
+  if (Array.isArray(credentialsJsonOrTransactions)) {
+    txs = credentialsJsonOrTransactions;
+    credentialsJson = process.env.GOOGLE_SHEETS_CREDENTIALS_JSON;
+  } else {
+    txs = transactions ?? [];
+    credentialsJson = credentialsJsonOrTransactions;
+  }
+
+  console.log('[Sheets] appendTransactionsToSheet:', {
+    spreadsheetIdLen: spreadsheetId?.length ?? 0,
+    authMode: credentialsJson ? 'credentials' : process.env.GCP_PROJECT_NUMBER ? 'oidc' : 'none',
+    txCount: txs.length,
+  });
+
+  if (!spreadsheetId || txs.length === 0) {
+    console.log('[Sheets] appendTransactionsToSheet: preskakanje – prazan spreadsheetId ili nema transakcija');
+    return { appended: 0, errors: [] };
+  }
+
+  let auth: InstanceType<typeof google.auth.GoogleAuth> | IdentityPoolClient;
+  if (credentialsJson) {
+    const result = createAuthFromCredentials(credentialsJson);
+    if ('error' in result) {
+      console.error('[Sheets] Neispravan GOOGLE_SHEETS_CREDENTIALS_JSON:', result.error);
+      return { appended: 0, errors: [`Credentials parse: ${result.error}`] };
+    }
+    auth = result.auth;
+  } else {
+    const oidcResult = createAuthFromOidc();
+    if (!oidcResult) {
+      console.log('[Sheets] Preskakanje – nema GOOGLE_SHEETS_CREDENTIALS_JSON niti GCP OIDC env vars');
+      return { appended: 0, errors: [] };
+    }
+    if ('error' in oidcResult) {
+      console.error('[Sheets] OIDC auth greška:', oidcResult.error);
+      return { appended: 0, errors: [`OIDC: ${oidcResult.error}`] };
+    }
+    auth = oidcResult.auth;
+  }
+
   const sheets = google.sheets({ version: 'v4', auth });
-  const byYear = groupByYear(transactions);
+  const byYear = groupByYear(txs);
   console.log('[Sheets] Grupisano po godinama:', [...byYear.keys()]);
 
   for (const [year, txs] of byYear) {
