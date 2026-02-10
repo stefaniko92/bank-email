@@ -6,6 +6,7 @@ import {
   markTransactionsDelivered,
   saveEmailWithTransactions,
 } from '@/lib/storage';
+import { appendTransactionsToSheet } from '@/lib/google-sheets';
 import { sendFailureEmail } from '@/lib/notifications/email';
 
 export const runtime = 'nodejs';
@@ -279,6 +280,27 @@ export async function POST(request: NextRequest) {
       }
     } catch (error) {
       console.error('Failed to forward webhook payload:', error);
+    }
+
+    // Append all transactions to Google Sheet (one sheet per year)
+    const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
+    const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    if (sheetsApiKey && spreadsheetId && transactions.length > 0) {
+      try {
+        const { appended, errors } = await appendTransactionsToSheet(
+          spreadsheetId,
+          sheetsApiKey,
+          transactions
+        );
+        if (appended > 0) {
+          console.log(`[Sheets] Appended ${appended} transaction(s) to Google Sheet`);
+        }
+        if (errors.length > 0) {
+          console.warn('[Sheets] Errors:', errors);
+        }
+      } catch (sheetsErr) {
+        console.error('[Sheets] Append failed:', sheetsErr instanceof Error ? sheetsErr.message : sheetsErr);
+      }
     }
 
     return NextResponse.json({

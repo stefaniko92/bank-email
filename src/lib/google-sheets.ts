@@ -1,0 +1,130 @@
+/**
+ * Google Sheets service for appending bank transactions.
+ * Organizes data by year: one sheet per year (e.g. "2025", "2026").
+ */
+
+import { google } from 'googleapis';
+import type { Transaction } from '@/ai/flows/extract-transaction-details';
+
+const COLUMN_HEADERS = [
+  'Naziv i sedište primaoca',
+  'Iznos odobrenja',
+  'Poziv na broj odobrenja',
+  'Referentna oznaka',
+  'Datum knjiženja'
+];
+
+function getYearFromDate(dateStr: string): string {
+  const match = dateStr.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+  if (match) return match[3];
+  const isoMatch = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return isoMatch[1];
+  return new Date().getFullYear().toString();
+}
+
+function groupByYear(transactions: Transaction[]): Map<string, Transaction[]> {
+  const byYear = new Map<string, Transaction[]>();
+  for (const tx of transactions) {
+    const year = getYearFromDate(tx.datumKnjizenja);
+    const list = byYear.get(year) ?? [];
+    list.push(tx);
+    byYear.set(year, list);
+  }
+  return byYear;
+}
+
+function transactionToRow(tx: Transaction): string[] {
+  return [
+    tx.nazivSedistePrimaoca,
+    tx.iznosOdobrenja,
+    tx.pozivNaBrojOdobrenja,
+    tx.referentnaOznaka,
+    tx.datumKnjizenja
+  ];
+}
+
+async function ensureSheetExists(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  sheetName: string
+): Promise<void> {
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const exists = meta.data.sheets?.some((s) => s.properties?.title === sheetName);
+  if (exists) return;
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [{
+        addSheet: {
+          properties: {
+            title: sheetName,
+            gridProperties: { rowCount: 1000, columnCount: 10 }
+          }
+        }
+      }]
+    }
+  });
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${sheetName}'!A1:E1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [COLUMN_HEADERS] }
+  });
+}
+
+export async function appendTransactionsToSheet(
+  spreadsheetId: string,
+  apiKey: string,
+  transactions: Transaction[]
+): Promise<{ appended: number; errors: string[] }> {
+  const errors: string[] = [];
+  let appended = 0;
+
+  if (!spreadsheetId || !apiKey) {
+    return { appended: 0, errors: [] };
+  }
+
+  const auth = new google.auth.GoogleAuth({ apiKey });
+  const sheets = google.sheets({ version: 'v4', auth });
+  const byYear = groupByYear(transactions);
+
+  for (const [year, txs] of byYear) {
+    try {
+      const values = txs.map(transactionToRow);
+      const response = await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: `'${year}'!A:E`,
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values }
+      });
+      const updated = response.data.updates?.updatedRows ?? values.length;
+      appended += updated;
+      console.log(`[Sheets] Appended ${updated} transaction(s) to sheet "${year}"`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('Unable to parse range') || msg.includes('range')) {
+        try {
+          await ensureSheetExists(sheets, spreadsheetId, year);
+          const retryResponse = await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: `'${year}'!A:E`,
+            valueInputOption: 'USER_ENTERED',
+            insertDataOption: 'INSERT_ROWS',
+            requestBody: { values: txs.map(transactionToRow) }
+          });
+          appended += retryResponse.data.updates?.updatedRows ?? txs.length;
+        } catch (retryErr: unknown) {
+          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          errors.push(`Sheet "${year}": ${retryMsg}`);
+        }
+      } else {
+        errors.push(`Sheet "${year}": ${msg}`);
+      }
+    }
+  }
+
+  return { appended, errors };
+}
