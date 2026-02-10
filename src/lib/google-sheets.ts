@@ -82,13 +82,21 @@ export async function appendTransactionsToSheet(
   const errors: string[] = [];
   let appended = 0;
 
+  console.log('[Sheets] appendTransactionsToSheet:', {
+    spreadsheetIdLen: spreadsheetId?.length ?? 0,
+    apiKeyLen: apiKey?.length ?? 0,
+    txCount: transactions.length,
+  });
+
   if (!spreadsheetId || !apiKey) {
+    console.log('[Sheets] appendTransactionsToSheet: preskakanje – prazan spreadsheetId ili apiKey');
     return { appended: 0, errors: [] };
   }
 
   const auth = new google.auth.GoogleAuth({ apiKey });
   const sheets = google.sheets({ version: 'v4', auth });
   const byYear = groupByYear(transactions);
+  console.log('[Sheets] Grupisano po godinama:', [...byYear.keys()]);
 
   for (const [year, txs] of byYear) {
     try {
@@ -105,6 +113,9 @@ export async function appendTransactionsToSheet(
       console.log(`[Sheets] Appended ${updated} transaction(s) to sheet "${year}"`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      const resp = err && typeof err === 'object' && 'response' in err ? (err as { response?: { status?: number; statusText?: string; data?: unknown } }).response : null;
+      console.error(`[Sheets] append greška za sheet "${year}":`, msg);
+      if (resp) console.error('[Sheets] HTTP', resp.status, resp.statusText, resp.data ? '(body ima podatke)' : '');
       if (msg.includes('Unable to parse range') || msg.includes('range')) {
         try {
           await ensureSheetExists(sheets, spreadsheetId, year);

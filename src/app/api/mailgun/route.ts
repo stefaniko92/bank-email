@@ -227,23 +227,33 @@ export async function POST(request: NextRequest) {
     }
 
     // Google Sheets backup – runs first, before Postgres/webhook (so we have data even if downstream fails)
+    const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
+    const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    console.log('[Sheets] Start:', {
+      hasKey: !!sheetsApiKey,
+      keyPrefix: sheetsApiKey ? `${sheetsApiKey.slice(0, 8)}...` : '(empty)',
+      hasId: !!spreadsheetId,
+      spreadsheetIdPreview: spreadsheetId ? `${spreadsheetId.slice(0, 12)}...` : '(empty)',
+      txCount: transactions.length,
+    });
+    if (!sheetsApiKey) console.log('[Sheets] GOOGLE_SHEETS_API_KEY nije podešen');
+    if (!spreadsheetId) console.log('[Sheets] GOOGLE_SHEETS_SPREADSHEET_ID nije podešen');
     try {
-      const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
-      const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
-      console.log('[Sheets] Config check:', { hasKey: !!sheetsApiKey, hasId: !!spreadsheetId, txCount: transactions.length });
       if (sheetsApiKey && spreadsheetId && transactions.length > 0) {
+        console.log('[Sheets] Pozivam appendTransactionsToSheet...');
         const { appended, errors } = await appendTransactionsToSheet(
           spreadsheetId,
           sheetsApiKey,
           transactions
         );
-        console.log(`[Sheets] Appended ${appended}/${transactions.length} to Google Sheet`);
-        if (errors.length > 0) console.warn('[Sheets] Errors:', errors);
+        console.log(`[Sheets] Završeno: upisano ${appended}/${transactions.length} redova`);
+        if (errors.length > 0) console.warn('[Sheets] Greške:', errors);
       } else if (transactions.length > 0) {
-        console.log('[Sheets] Skipped – missing GOOGLE_SHEETS_API_KEY or GOOGLE_SHEETS_SPREADSHEET_ID in Vercel env');
+        console.log('[Sheets] Preskačem – nedostaju kredencijali ili nema transakcija');
       }
     } catch (e) {
-      console.error('[Sheets] Error:', e instanceof Error ? e.message : String(e));
+      console.error('[Sheets] Izuzetak:', e instanceof Error ? e.message : String(e));
+      if (e instanceof Error && e.stack) console.error('[Sheets] Stack:', e.stack);
     }
 
     const emailData = {
