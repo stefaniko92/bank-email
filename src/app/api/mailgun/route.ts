@@ -235,29 +235,6 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    // Append to Google Sheet FIRST (backup – runs even if webhook/Postgres fails later)
-    const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
-    const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
-    if (sheetsApiKey && spreadsheetId && transactions.length > 0) {
-      try {
-        const { appended, errors } = await appendTransactionsToSheet(
-          spreadsheetId,
-          sheetsApiKey,
-          transactions
-        );
-        if (appended > 0) {
-          console.log(`[Sheets] Appended ${appended} transaction(s) to Google Sheet`);
-        }
-        if (errors.length > 0) {
-          console.warn('[Sheets] Errors:', errors);
-        }
-      } catch (sheetsErr) {
-        console.error('[Sheets] Append failed:', sheetsErr instanceof Error ? sheetsErr.message : sheetsErr);
-      }
-    } else if (transactions.length > 0) {
-      console.warn('[Sheets] Skipped – set GOOGLE_SHEETS_API_KEY and GOOGLE_SHEETS_SPREADSHEET_ID in Vercel env');
-    }
-
     const { emailId, pendingTransactions, totalTransactions } = await saveEmailWithTransactions(
       {
         subject: emailData.subject,
@@ -270,6 +247,30 @@ export async function POST(request: NextRequest) {
       },
       transactions,
     );
+
+    // Append only NEW transactions to Google Sheet (avoids duplicates when Mailgun sends same email twice)
+    const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
+    const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    const transactionsToSheet = pendingTransactions.map((p) => p.transaction);
+    if (sheetsApiKey && spreadsheetId && transactionsToSheet.length > 0) {
+      try {
+        const { appended, errors } = await appendTransactionsToSheet(
+          spreadsheetId,
+          sheetsApiKey,
+          transactionsToSheet
+        );
+        if (appended > 0) {
+          console.log(`[Sheets] Appended ${appended} transaction(s) to Google Sheet`);
+        }
+        if (errors.length > 0) {
+          console.warn('[Sheets] Errors:', errors);
+        }
+      } catch (sheetsErr) {
+        console.error('[Sheets] Append failed:', sheetsErr instanceof Error ? sheetsErr.message : sheetsErr);
+      }
+    } else if (transactions.length > 0 && (!sheetsApiKey || !spreadsheetId)) {
+      console.warn('[Sheets] Skipped – set GOOGLE_SHEETS_API_KEY and GOOGLE_SHEETS_SPREADSHEET_ID in Vercel env');
+    }
 
     let deliveredCount = 0;
     try {
