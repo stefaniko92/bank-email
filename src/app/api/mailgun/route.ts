@@ -32,13 +32,17 @@ async function parseMailgunRequest(request: NextRequest): Promise<{ fields: Mail
     const files: MailgunFile[] = [];
 
     for (const [key, value] of formData.entries()) {
-      if (value instanceof File) {
-        const arrayBuffer = await value.arrayBuffer();
+      if (value instanceof File || (typeof value === 'object' && value !== null && 'arrayBuffer' in value)) {
+        const blob = value as File | Blob;
+        const arrayBuffer = await blob.arrayBuffer();
+        const name = blob instanceof File ? blob.name : key;
+        const type = blob instanceof File ? blob.type : 'application/octet-stream';
+        const size = blob.size;
         files.push({
           key,
-          filename: value.name,
-          contentType: value.type || 'application/octet-stream',
-          size: value.size,
+          filename: name || key,
+          contentType: type || 'application/octet-stream',
+          size,
           buffer: Buffer.from(arrayBuffer),
         });
       } else if (typeof value === 'string') {
@@ -173,7 +177,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!pdfFiles.length) {
-      console.warn('No PDF attachments detected on Mailgun payload');
+      console.warn('No PDF attachments detected. Files received:', files.map(f => ({ key: f.key, name: f.filename, type: f.contentType, size: f.size })));
     }
 
     const transactions: Transaction[] = [];
@@ -222,6 +226,26 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Google Sheets backup – runs first, before Postgres/webhook (so we have data even if downstream fails)
+    try {
+      const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
+      const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+      console.log('[Sheets] Config check:', { hasKey: !!sheetsApiKey, hasId: !!spreadsheetId, txCount: transactions.length });
+      if (sheetsApiKey && spreadsheetId && transactions.length > 0) {
+        const { appended, errors } = await appendTransactionsToSheet(
+          spreadsheetId,
+          sheetsApiKey,
+          transactions
+        );
+        console.log(`[Sheets] Appended ${appended}/${transactions.length} to Google Sheet`);
+        if (errors.length > 0) console.warn('[Sheets] Errors:', errors);
+      } else if (transactions.length > 0) {
+        console.log('[Sheets] Skipped – missing GOOGLE_SHEETS_API_KEY or GOOGLE_SHEETS_SPREADSHEET_ID in Vercel env');
+      }
+    } catch (e) {
+      console.error('[Sheets] Error:', e instanceof Error ? e.message : String(e));
+    }
+
     const emailData = {
       subject: messageDetails.subject,
       from: messageDetails.from,
@@ -247,34 +271,6 @@ export async function POST(request: NextRequest) {
       },
       transactions,
     );
-
-    // Append only NEW transactions to Google Sheet (avoids duplicates when Mailgun sends same email twice)
-    const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
-    const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
-    const transactionsToSheet = pendingTransactions.map((p) => p.transaction);
-    console.log('[Sheets] pending=', transactionsToSheet.length, 'key=', !!sheetsApiKey, 'id=', !!spreadsheetId);
-
-    if (transactionsToSheet.length === 0) {
-      console.log('[Sheets] Skipped – no new transactions (all already delivered)');
-    } else if (!sheetsApiKey || !spreadsheetId) {
-      console.warn('[Sheets] Skipped – set GOOGLE_SHEETS_API_KEY and GOOGLE_SHEETS_SPREADSHEET_ID in Vercel env');
-    } else {
-      try {
-        const { appended, errors } = await appendTransactionsToSheet(
-          spreadsheetId,
-          sheetsApiKey,
-          transactionsToSheet
-        );
-        if (appended > 0) {
-          console.log(`[Sheets] Appended ${appended} transaction(s) to Google Sheet`);
-        }
-        if (errors.length > 0) {
-          console.warn('[Sheets] Errors:', errors);
-        }
-      } catch (sheetsErr) {
-        console.error('[Sheets] Append failed:', sheetsErr instanceof Error ? sheetsErr.message : sheetsErr);
-      }
-    }
 
     let deliveredCount = 0;
     try {
