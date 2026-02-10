@@ -5,6 +5,7 @@ import {
   getWebhookConfig as fetchWebhookConfig,
   markTransactionsDelivered,
   saveEmailWithTransactions,
+  tryClaimMessageId,
 } from '@/lib/storage';
 import { appendTransactionsToSheet } from '@/lib/google-sheets';
 import { sendFailureEmail } from '@/lib/notifications/email';
@@ -227,9 +228,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Google Sheets backup – runs first, before Postgres/webhook (so we have data even if downstream fails)
-    // Auth: Workload Identity Federation (OIDC) – GCP_* env vars
+    // Claim messageId before Sheets to prevent parallel/retry duplicates
     const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     const hasOidc = !!(process.env.GCP_PROJECT_NUMBER && process.env.GCP_SERVICE_ACCOUNT_EMAIL && process.env.GCP_WORKLOAD_IDENTITY_POOL_ID && process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID);
+    const sheetsClaimed = messageDetails.messageId?.trim()
+      ? await tryClaimMessageId(messageDetails.messageId)
+      : true;
+    if (!sheetsClaimed) {
+      console.log('[Sheets] Preskačem – messageId već u obradi (duplikat/paralelni zahtev)');
+    }
     console.log('[Sheets] Start:', {
       hasOidc,
       hasId: !!spreadsheetId,
@@ -239,7 +246,7 @@ export async function POST(request: NextRequest) {
     if (!hasOidc) console.log('[Sheets] Nema GCP OIDC env vars');
     if (!spreadsheetId) console.log('[Sheets] GOOGLE_SHEETS_SPREADSHEET_ID nije podešen');
     try {
-      if (hasOidc && spreadsheetId && transactions.length > 0) {
+      if (sheetsClaimed && hasOidc && spreadsheetId && transactions.length > 0) {
         console.log('[Sheets] Pozivam appendTransactionsToSheet...');
         const { appended, errors } = await appendTransactionsToSheet(
           spreadsheetId,

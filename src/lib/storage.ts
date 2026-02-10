@@ -135,6 +135,30 @@ export async function markTransactionsDelivered(transactionKeys: string[], email
   `;
 }
 
+export async function emailExistsByMessageId(messageId: string | undefined): Promise<boolean> {
+  if (!messageId?.trim()) return false;
+  await ensureSchema();
+  const sql = getSqlClient();
+  const rows = await sql`
+    SELECT id FROM emails WHERE message_id = ${messageId.trim()} LIMIT 1
+  `;
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+/** Atomically "claim" messageId – first request wins, prevents parallel duplicate processing. */
+export async function tryClaimMessageId(messageId: string | undefined): Promise<boolean> {
+  if (!messageId?.trim()) return false;
+  await ensureSchema();
+  const sql = getSqlClient();
+  const id = messageId.trim();
+  const result = await sql`
+    INSERT INTO emails (id, message_id) VALUES (${id}, ${id})
+    ON CONFLICT (id) DO NOTHING
+    RETURNING id
+  `;
+  return Array.isArray(result) && result.length > 0;
+}
+
 export async function getWebhookConfig() {
   await ensureSchema();
   const sql = getSqlClient();

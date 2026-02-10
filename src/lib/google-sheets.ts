@@ -141,10 +141,11 @@ export async function appendTransactionsToSheet(
 
   for (const [year, txs] of byYear) {
     try {
+      await ensureSheetExists(sheets, spreadsheetId, year);
       const values = txs.map(transactionToRow);
       const response = await sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `'${year}'!A:E`,
+        range: `'${year}'!A1:E`,
         valueInputOption: 'USER_ENTERED',
         insertDataOption: 'INSERT_ROWS',
         requestBody: { values }
@@ -156,25 +157,13 @@ export async function appendTransactionsToSheet(
       const msg = err instanceof Error ? err.message : String(err);
       const resp = err && typeof err === 'object' && 'response' in err ? (err as { response?: { status?: number; statusText?: string; data?: unknown } }).response : null;
       console.error(`[Sheets] append greška za sheet "${year}":`, msg);
-      if (resp) console.error('[Sheets] HTTP', resp.status, resp.statusText, resp.data ? '(body ima podatke)' : '');
-      if (msg.includes('Unable to parse range') || msg.includes('range')) {
+      if (resp?.data) {
         try {
-          await ensureSheetExists(sheets, spreadsheetId, year);
-          const retryResponse = await sheets.spreadsheets.values.append({
-            spreadsheetId,
-            range: `'${year}'!A:E`,
-            valueInputOption: 'USER_ENTERED',
-            insertDataOption: 'INSERT_ROWS',
-            requestBody: { values: txs.map(transactionToRow) }
-          });
-          appended += retryResponse.data.updates?.updatedRows ?? txs.length;
-        } catch (retryErr: unknown) {
-          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          errors.push(`Sheet "${year}": ${retryMsg}`);
-        }
-      } else {
-        errors.push(`Sheet "${year}": ${msg}`);
+          const body = typeof resp.data === 'object' ? JSON.stringify(resp.data) : String(resp.data);
+          console.error('[Sheets] API odgovor:', body);
+        } catch (_) { /* ignore */ }
       }
+      errors.push(`Sheet "${year}": ${msg}`);
     }
   }
 
