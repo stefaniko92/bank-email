@@ -252,6 +252,7 @@ export async function POST(request: NextRequest) {
     const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
     const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     const transactionsToSheet = pendingTransactions.map((p) => p.transaction);
+    console.log('[Sheets] pending=', transactionsToSheet.length, 'key=', !!sheetsApiKey, 'id=', !!spreadsheetId);
 
     if (transactionsToSheet.length === 0) {
       console.log('[Sheets] Skipped – no new transactions (all already delivered)');
