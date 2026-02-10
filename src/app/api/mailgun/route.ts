@@ -227,21 +227,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Google Sheets backup – runs first, before Postgres/webhook (so we have data even if downstream fails)
-    // Auth: GOOGLE_SHEETS_CREDENTIALS_JSON (Service Account) ili Workload Identity Federation (GCP_* + OIDC, bez ključeva)
+    // Auth: Workload Identity Federation (OIDC) – GCP_* env vars
     const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
-    const hasCredentials = !!process.env.GOOGLE_SHEETS_CREDENTIALS_JSON;
     const hasOidc = !!(process.env.GCP_PROJECT_NUMBER && process.env.GCP_SERVICE_ACCOUNT_EMAIL && process.env.GCP_WORKLOAD_IDENTITY_POOL_ID && process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID);
     console.log('[Sheets] Start:', {
-      hasCredentials,
       hasOidc,
       hasId: !!spreadsheetId,
       spreadsheetIdPreview: spreadsheetId ? `${spreadsheetId.slice(0, 12)}...` : '(empty)',
       txCount: transactions.length,
     });
-    if (!hasCredentials && !hasOidc) console.log('[Sheets] Nema auth: ni GOOGLE_SHEETS_CREDENTIALS_JSON ni GCP OIDC env vars');
+    if (!hasOidc) console.log('[Sheets] Nema GCP OIDC env vars');
     if (!spreadsheetId) console.log('[Sheets] GOOGLE_SHEETS_SPREADSHEET_ID nije podešen');
     try {
-      if ((hasCredentials || hasOidc) && spreadsheetId && transactions.length > 0) {
+      if (hasOidc && spreadsheetId && transactions.length > 0) {
         console.log('[Sheets] Pozivam appendTransactionsToSheet...');
         const { appended, errors } = await appendTransactionsToSheet(
           spreadsheetId,

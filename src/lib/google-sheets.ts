@@ -1,10 +1,7 @@
 /**
  * Google Sheets service for appending bank transactions.
  * Organizes data by year: one sheet per year (e.g. "2025", "2026").
- *
- * Auth modes (bez Service Account ključeva ako je org policy blokira):
- * 1. GOOGLE_SHEETS_CREDENTIALS_JSON – Service Account JSON key
- * 2. Workload Identity Federation (OIDC) – GCP_* env vars + Vercel OIDC, bez ključeva
+ * Auth: Workload Identity Federation (OIDC) – GCP_* env vars + Vercel OIDC.
  */
 
 import { google } from 'googleapis';
@@ -80,26 +77,6 @@ async function ensureSheetExists(
   });
 }
 
-function createAuthFromCredentials(credentialsJson: string): { auth: InstanceType<typeof google.auth.GoogleAuth> } | { error: string } {
-  let credentials: { client_email?: string; private_key?: string };
-  try {
-    credentials = JSON.parse(credentialsJson);
-    if (!credentials.client_email || !credentials.private_key) {
-      throw new Error('JSON mora sadržati client_email i private_key (Service Account)');
-    }
-  } catch (parseErr) {
-    const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-    return { error: msg };
-  }
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: credentials.client_email,
-      private_key: credentials.private_key,
-    },
-  });
-  return { auth };
-}
-
 function createAuthFromOidc(): { auth: IdentityPoolClient } | { error: string } | null {
   const projectNumber = process.env.GCP_PROJECT_NUMBER;
   const serviceAccountEmail = process.env.GCP_SERVICE_ACCOUNT_EMAIL;
@@ -128,62 +105,37 @@ function createAuthFromOidc(): { auth: IdentityPoolClient } | { error: string } 
 
 /**
  * Append transactions to Google Sheet.
- * Auth: GOOGLE_SHEETS_CREDENTIALS_JSON (Service Account key) ili Workload Identity Federation (GCP_* env vars).
- * Ako org policy blokira ključeve, koristi OIDC – vidi https://vercel.com/docs/oidc/gcp
+ * Auth: Workload Identity Federation (OIDC) – GCP_* env vars. Vidi https://vercel.com/docs/oidc/gcp
  */
 export async function appendTransactionsToSheet(
   spreadsheetId: string,
-  credentialsJsonOrTransactions: string | Transaction[],
-  transactions?: Transaction[]
+  transactions: Transaction[]
 ): Promise<{ appended: number; errors: string[] }> {
   const errors: string[] = [];
   let appended = 0;
 
-  // Overload: (spreadsheetId, transactions) – auth iz env
-  let txs: Transaction[];
-  let credentialsJson: string | undefined;
-  if (Array.isArray(credentialsJsonOrTransactions)) {
-    txs = credentialsJsonOrTransactions;
-    credentialsJson = process.env.GOOGLE_SHEETS_CREDENTIALS_JSON;
-  } else {
-    txs = transactions ?? [];
-    credentialsJson = credentialsJsonOrTransactions;
-  }
-
   console.log('[Sheets] appendTransactionsToSheet:', {
     spreadsheetIdLen: spreadsheetId?.length ?? 0,
-    authMode: credentialsJson ? 'credentials' : process.env.GCP_PROJECT_NUMBER ? 'oidc' : 'none',
-    txCount: txs.length,
+    txCount: transactions.length,
   });
 
-  if (!spreadsheetId || txs.length === 0) {
+  if (!spreadsheetId || transactions.length === 0) {
     console.log('[Sheets] appendTransactionsToSheet: preskakanje – prazan spreadsheetId ili nema transakcija');
     return { appended: 0, errors: [] };
   }
 
-  let auth: InstanceType<typeof google.auth.GoogleAuth> | IdentityPoolClient;
-  if (credentialsJson) {
-    const result = createAuthFromCredentials(credentialsJson);
-    if ('error' in result) {
-      console.error('[Sheets] Neispravan GOOGLE_SHEETS_CREDENTIALS_JSON:', result.error);
-      return { appended: 0, errors: [`Credentials parse: ${result.error}`] };
-    }
-    auth = result.auth;
-  } else {
-    const oidcResult = createAuthFromOidc();
-    if (!oidcResult) {
-      console.log('[Sheets] Preskakanje – nema GOOGLE_SHEETS_CREDENTIALS_JSON niti GCP OIDC env vars');
-      return { appended: 0, errors: [] };
-    }
-    if ('error' in oidcResult) {
-      console.error('[Sheets] OIDC auth greška:', oidcResult.error);
-      return { appended: 0, errors: [`OIDC: ${oidcResult.error}`] };
-    }
-    auth = oidcResult.auth;
+  const oidcResult = createAuthFromOidc();
+  if (!oidcResult) {
+    console.log('[Sheets] Preskakanje – nema GCP OIDC env vars (GCP_PROJECT_NUMBER, GCP_SERVICE_ACCOUNT_EMAIL, GCP_WORKLOAD_IDENTITY_POOL_ID, GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID)');
+    return { appended: 0, errors: [] };
+  }
+  if ('error' in oidcResult) {
+    console.error('[Sheets] OIDC auth greška:', oidcResult.error);
+    return { appended: 0, errors: [`OIDC: ${oidcResult.error}`] };
   }
 
-  const sheets = google.sheets({ version: 'v4', auth });
-  const byYear = groupByYear(txs);
+  const sheets = google.sheets({ version: 'v4', auth: oidcResult.auth });
+  const byYear = groupByYear(transactions);
   console.log('[Sheets] Grupisano po godinama:', [...byYear.keys()]);
 
   for (const [year, txs] of byYear) {
