@@ -252,7 +252,12 @@ export async function POST(request: NextRequest) {
     const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
     const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     const transactionsToSheet = pendingTransactions.map((p) => p.transaction);
-    if (sheetsApiKey && spreadsheetId && transactionsToSheet.length > 0) {
+
+    if (transactionsToSheet.length === 0) {
+      console.log('[Sheets] Skipped – no new transactions (all already delivered)');
+    } else if (!sheetsApiKey || !spreadsheetId) {
+      console.warn('[Sheets] Skipped – set GOOGLE_SHEETS_API_KEY and GOOGLE_SHEETS_SPREADSHEET_ID in Vercel env');
+    } else {
       try {
         const { appended, errors } = await appendTransactionsToSheet(
           spreadsheetId,
@@ -268,8 +273,6 @@ export async function POST(request: NextRequest) {
       } catch (sheetsErr) {
         console.error('[Sheets] Append failed:', sheetsErr instanceof Error ? sheetsErr.message : sheetsErr);
       }
-    } else if (transactions.length > 0 && (!sheetsApiKey || !spreadsheetId)) {
-      console.warn('[Sheets] Skipped – set GOOGLE_SHEETS_API_KEY and GOOGLE_SHEETS_SPREADSHEET_ID in Vercel env');
     }
 
     let deliveredCount = 0;
