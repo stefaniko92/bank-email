@@ -92,6 +92,7 @@ function createAuthFromOidc(): { auth: IdentityPoolClient } | { error: string } 
       subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
       token_url: 'https://sts.googleapis.com/v1/token',
       service_account_impersonation_url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccountEmail}:generateAccessToken`,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
       subject_token_supplier: {
         getSubjectToken: async () => await getVercelOidcToken(),
       },
