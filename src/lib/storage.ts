@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Transaction } from '@/ai/flows/extract-transaction-details';
 import { buildTransactionDedupMetadata } from './transactions';
 import { ensureSchema, getSqlClient } from './db';
@@ -157,6 +157,40 @@ export async function tryClaimMessageId(messageId: string | undefined): Promise<
     RETURNING id
   `;
   return Array.isArray(result) && result.length > 0;
+}
+
+/** Content-based dedup: već smo upisali ove transakcije u Sheets u zadnjih 24h? */
+export async function wasSheetsAppendedRecently(transactions: Transaction[]): Promise<boolean> {
+  if (transactions.length === 0) return true;
+  await ensureSchema();
+  const sql = getSqlClient();
+  const parts = transactions
+    .map((tx) => buildTransactionDedupMetadata(tx).signature)
+    .sort();
+  const contentHash = createHash('sha256').update(parts.join('\n')).digest('hex');
+  const rows = await sql`
+    SELECT 1 FROM sheets_append_log
+    WHERE content_hash = ${contentHash}
+      AND appended_at > NOW() - INTERVAL '24 hours'
+    LIMIT 1
+  `;
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+/** Označi da smo upisali ove transakcije u Sheets. */
+export async function markSheetsAppended(transactions: Transaction[]): Promise<void> {
+  if (transactions.length === 0) return;
+  await ensureSchema();
+  const sql = getSqlClient();
+  const parts = transactions
+    .map((tx) => buildTransactionDedupMetadata(tx).signature)
+    .sort();
+  const contentHash = createHash('sha256').update(parts.join('\n')).digest('hex');
+  await sql`
+    INSERT INTO sheets_append_log (content_hash, appended_at)
+    VALUES (${contentHash}, NOW())
+    ON CONFLICT (content_hash) DO UPDATE SET appended_at = NOW()
+  `;
 }
 
 export async function getWebhookConfig() {

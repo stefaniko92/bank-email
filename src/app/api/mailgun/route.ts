@@ -3,9 +3,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { extractTransactionDetails, type Transaction } from '@/ai/flows/extract-transaction-details';
 import {
   getWebhookConfig as fetchWebhookConfig,
+  markSheetsAppended,
   markTransactionsDelivered,
   saveEmailWithTransactions,
   tryClaimMessageId,
+  wasSheetsAppendedRecently,
 } from '@/lib/storage';
 import { appendTransactionsToSheet } from '@/lib/google-sheets';
 import { sendFailureEmail } from '@/lib/notifications/email';
@@ -246,12 +248,16 @@ export async function POST(request: NextRequest) {
     if (!hasOidc) console.log('[Sheets] Nema GCP OIDC env vars');
     if (!spreadsheetId) console.log('[Sheets] GOOGLE_SHEETS_SPREADSHEET_ID nije podešen');
     try {
-      if (sheetsClaimed && hasOidc && spreadsheetId && transactions.length > 0) {
+      const alreadyInSheets = await wasSheetsAppendedRecently(transactions);
+      if (alreadyInSheets) {
+        console.log('[Sheets] Preskačem – isti sadržaj već upisan u zadnjih 24h (content dedup)');
+      } else if (sheetsClaimed && hasOidc && spreadsheetId && transactions.length > 0) {
         console.log('[Sheets] Pozivam appendTransactionsToSheet...');
         const { appended, errors } = await appendTransactionsToSheet(
           spreadsheetId,
           transactions
         );
+        if (appended === transactions.length && errors.length === 0) await markSheetsAppended(transactions);
         console.log(`[Sheets] Završeno: upisano ${appended}/${transactions.length} redova`);
         if (errors.length > 0) console.warn('[Sheets] Greške:', errors);
       } else if (transactions.length > 0) {

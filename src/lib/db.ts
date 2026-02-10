@@ -88,6 +88,13 @@ async function runSchemaMigrations() {
     CREATE INDEX IF NOT EXISTS idx_transaction_delivery_delivered
     ON transaction_delivery_state (delivered_at)
   `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS sheets_append_log (
+      content_hash TEXT PRIMARY KEY,
+      appended_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
 }
 
 export function ensureSchema() {
