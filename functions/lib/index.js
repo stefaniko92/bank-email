@@ -10,6 +10,7 @@ const firestore_1 = require("firebase-admin/firestore");
 const axios_1 = __importDefault(require("axios"));
 const multipart_form_1 = require("./utils/multipart-form");
 const extract_transaction_details_1 = require("./ai/flows/extract-transaction-details");
+const google_sheets_1 = require("./services/google-sheets");
 (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
 let webhookConfigCache = null;
@@ -195,6 +196,23 @@ exports.emailReceive = (0, https_1.onRequest)({
             }
             else {
                 console.log('ℹ️ No active webhook config found. Skipping external POST.');
+            }
+            // Append transactions to Google Sheet (one sheet per year)
+            const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
+            const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+            if (sheetsApiKey && spreadsheetId && transactions.length > 0) {
+                try {
+                    const { appended, errors } = await (0, google_sheets_1.appendTransactionsToSheet)(spreadsheetId, sheetsApiKey, transactions);
+                    if (appended > 0) {
+                        console.log(`📊 Appended ${appended} transaction(s) to Google Sheet`);
+                    }
+                    if (errors.length > 0) {
+                        console.warn('Google Sheets errors:', errors);
+                    }
+                }
+                catch (sheetsErr) {
+                    console.error('Google Sheets append failed:', sheetsErr?.message || sheetsErr);
+                }
             }
         }
         catch (err) {

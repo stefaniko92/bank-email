@@ -4,6 +4,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import axios from 'axios';
 import { parseMultipartForm } from './utils/multipart-form';
 import { extractTransactionDetails } from './ai/flows/extract-transaction-details';
+import { appendTransactionsToSheet } from './services/google-sheets';
 
 initializeApp();
 const db = getFirestore();
@@ -213,6 +214,27 @@ export const emailReceive = onRequest({
         }
       } else {
         console.log('ℹ️ No active webhook config found. Skipping external POST.');
+      }
+
+      // Append transactions to Google Sheet (one sheet per year)
+      const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
+      const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+      if (sheetsApiKey && spreadsheetId && transactions.length > 0) {
+        try {
+          const { appended, errors } = await appendTransactionsToSheet(
+            spreadsheetId,
+            sheetsApiKey,
+            transactions
+          );
+          if (appended > 0) {
+            console.log(`📊 Appended ${appended} transaction(s) to Google Sheet`);
+          }
+          if (errors.length > 0) {
+            console.warn('Google Sheets errors:', errors);
+          }
+        } catch (sheetsErr: any) {
+          console.error('Google Sheets append failed:', sheetsErr?.message || sheetsErr);
+        }
       }
     } catch (err: any) {
       console.error('Fatal async error:', err);

@@ -103,6 +103,25 @@ SET url = EXCLUDED.url,
 - Persistent data writes log IDs and timestamps.
 You can view logs via Vercel → Functions → `/api/mailgun`, or in local dev console.
 
+## Google Sheets Integration (Firebase Functions)
+
+When processing PDFs via the Firebase `emailReceive` function, extracted transactions can be appended to a Google Sheet. Transactions are organized **one sheet per year** (e.g. "2025", "2024").
+
+### Setup
+
+1. Create a Google Sheet and copy the **Spreadsheet ID** from the URL:  
+   `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit`
+2. Enable the **Google Sheets API** in [Google Cloud Console](https://console.cloud.google.com/apis/library/sheets.googleapis.com) (same project as your Firebase).
+3. Create an API key (or use a service account for private sheets).
+4. Set in `functions/.env` or Firebase environment:
+   ```env
+   GOOGLE_SHEETS_API_KEY=AIza...
+   GOOGLE_SHEETS_SPREADSHEET_ID=your_spreadsheet_id
+   ```
+5. For Firebase production: set these as environment variables in the [Firebase Console](https://console.firebase.google.com) → Functions → your function → Environment variables.
+
+Sheets for each year are created automatically on first append. Column headers: Naziv i sedište primaoca, Iznos odobrenja, Poziv na broj odobrenja, Referentna oznaka, Datum knjiženja.
+
 ## Troubleshooting Checklist
 
 - **AI failures:** Check `[AI] ... request failed` logs; verify API keys and model names.
