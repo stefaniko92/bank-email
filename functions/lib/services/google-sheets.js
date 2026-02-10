@@ -54,15 +54,32 @@ function transactionToRow(tx) {
 }
 /**
  * Append transactions to Google Sheet, one sheet per year.
- * Creates a sheet for the year if it doesn't exist.
+ * credentialsJson: Service Account JSON key (API keys are NOT supported for Sheets write).
+ * Share the spreadsheet with the service account email.
  */
-async function appendTransactionsToSheet(spreadsheetId, apiKey, transactions) {
+async function appendTransactionsToSheet(spreadsheetId, credentialsJson, transactions) {
     const errors = [];
     let appended = 0;
-    if (!spreadsheetId || !apiKey) {
-        return { appended: 0, errors: ['GOOGLE_SHEETS_SPREADSHEET_ID and GOOGLE_SHEETS_API_KEY must be set'] };
+    if (!spreadsheetId || !credentialsJson) {
+        return { appended: 0, errors: ['GOOGLE_SHEETS_SPREADSHEET_ID and GOOGLE_SHEETS_CREDENTIALS_JSON must be set'] };
     }
-    const auth = new googleapis_1.google.auth.GoogleAuth({ apiKey });
+    let credentials;
+    try {
+        credentials = JSON.parse(credentialsJson);
+        if (!credentials.client_email || !credentials.private_key) {
+            throw new Error('JSON must contain client_email and private_key (Service Account)');
+        }
+    }
+    catch (parseErr) {
+        const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+        return { appended: 0, errors: [`Credentials parse: ${msg}`] };
+    }
+    const auth = new googleapis_1.google.auth.GoogleAuth({
+        credentials: {
+            client_email: credentials.client_email,
+            private_key: credentials.private_key,
+        },
+    });
     const sheets = googleapis_1.google.sheets({ version: 'v4', auth });
     const byYear = groupByYear(transactions);
     for (const [year, txs] of byYear) {

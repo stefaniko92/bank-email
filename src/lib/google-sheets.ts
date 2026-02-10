@@ -74,9 +74,14 @@ async function ensureSheetExists(
   });
 }
 
+/**
+ * credentialsJson: Service Account JSON key (full contents of .json file from Google Cloud Console).
+ * API keys are NOT supported for Sheets write – use Service Account.
+ * Share the spreadsheet with the service account email (e.g. xyz@project.iam.gserviceaccount.com).
+ */
 export async function appendTransactionsToSheet(
   spreadsheetId: string,
-  apiKey: string,
+  credentialsJson: string,
   transactions: Transaction[]
 ): Promise<{ appended: number; errors: string[] }> {
   const errors: string[] = [];
@@ -84,16 +89,33 @@ export async function appendTransactionsToSheet(
 
   console.log('[Sheets] appendTransactionsToSheet:', {
     spreadsheetIdLen: spreadsheetId?.length ?? 0,
-    apiKeyLen: apiKey?.length ?? 0,
+    hasCredentials: !!credentialsJson,
     txCount: transactions.length,
   });
 
-  if (!spreadsheetId || !apiKey) {
-    console.log('[Sheets] appendTransactionsToSheet: preskakanje – prazan spreadsheetId ili apiKey');
+  if (!spreadsheetId || !credentialsJson) {
+    console.log('[Sheets] appendTransactionsToSheet: preskakanje – prazan spreadsheetId ili GOOGLE_SHEETS_CREDENTIALS_JSON');
     return { appended: 0, errors: [] };
   }
 
-  const auth = new google.auth.GoogleAuth({ apiKey });
+  let credentials: { client_email?: string; private_key?: string };
+  try {
+    credentials = JSON.parse(credentialsJson);
+    if (!credentials.client_email || !credentials.private_key) {
+      throw new Error('JSON mora sadržati client_email i private_key (Service Account)');
+    }
+  } catch (parseErr) {
+    const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+    console.error('[Sheets] Neispravan GOOGLE_SHEETS_CREDENTIALS_JSON:', msg);
+    return { appended: 0, errors: [`Credentials parse: ${msg}`] };
+  }
+
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: credentials.client_email,
+      private_key: credentials.private_key,
+    },
+  });
   const sheets = google.sheets({ version: 'v4', auth });
   const byYear = groupByYear(transactions);
   console.log('[Sheets] Grupisano po godinama:', [...byYear.keys()]);

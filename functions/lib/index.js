@@ -198,11 +198,11 @@ exports.emailReceive = (0, https_1.onRequest)({
                 console.log('ℹ️ No active webhook config found. Skipping external POST.');
             }
             // Append transactions to Google Sheet (one sheet per year)
-            const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
+            const sheetsCredentials = process.env.GOOGLE_SHEETS_CREDENTIALS_JSON;
             const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
-            if (sheetsApiKey && spreadsheetId && transactions.length > 0) {
+            if (sheetsCredentials && spreadsheetId && transactions.length > 0) {
                 try {
-                    const { appended, errors } = await (0, google_sheets_1.appendTransactionsToSheet)(spreadsheetId, sheetsApiKey, transactions);
+                    const { appended, errors } = await (0, google_sheets_1.appendTransactionsToSheet)(spreadsheetId, sheetsCredentials, transactions);
                     if (appended > 0) {
                         console.log(`📊 Appended ${appended} transaction(s) to Google Sheet`);
                     }

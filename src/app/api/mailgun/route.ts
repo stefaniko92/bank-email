@@ -227,23 +227,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Google Sheets backup – runs first, before Postgres/webhook (so we have data even if downstream fails)
-    const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
+    // Koristi Service Account (GOOGLE_SHEETS_CREDENTIALS_JSON), ne API key – Sheets API ne podržava API key za upis.
+    const sheetsCredentials = process.env.GOOGLE_SHEETS_CREDENTIALS_JSON;
     const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     console.log('[Sheets] Start:', {
-      hasKey: !!sheetsApiKey,
-      keyPrefix: sheetsApiKey ? `${sheetsApiKey.slice(0, 8)}...` : '(empty)',
+      hasCredentials: !!sheetsCredentials,
       hasId: !!spreadsheetId,
       spreadsheetIdPreview: spreadsheetId ? `${spreadsheetId.slice(0, 12)}...` : '(empty)',
       txCount: transactions.length,
     });
-    if (!sheetsApiKey) console.log('[Sheets] GOOGLE_SHEETS_API_KEY nije podešen');
+    if (!sheetsCredentials) console.log('[Sheets] GOOGLE_SHEETS_CREDENTIALS_JSON nije podešen (Service Account JSON)');
     if (!spreadsheetId) console.log('[Sheets] GOOGLE_SHEETS_SPREADSHEET_ID nije podešen');
     try {
-      if (sheetsApiKey && spreadsheetId && transactions.length > 0) {
+      if (sheetsCredentials && spreadsheetId && transactions.length > 0) {
         console.log('[Sheets] Pozivam appendTransactionsToSheet...');
         const { appended, errors } = await appendTransactionsToSheet(
           spreadsheetId,
-          sheetsApiKey,
+          sheetsCredentials,
           transactions
         );
         console.log(`[Sheets] Završeno: upisano ${appended}/${transactions.length} redova`);

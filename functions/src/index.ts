@@ -217,13 +217,13 @@ export const emailReceive = onRequest({
       }
 
       // Append transactions to Google Sheet (one sheet per year)
-      const sheetsApiKey = process.env.GOOGLE_SHEETS_API_KEY;
+      const sheetsCredentials = process.env.GOOGLE_SHEETS_CREDENTIALS_JSON;
       const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
-      if (sheetsApiKey && spreadsheetId && transactions.length > 0) {
+      if (sheetsCredentials && spreadsheetId && transactions.length > 0) {
         try {
           const { appended, errors } = await appendTransactionsToSheet(
             spreadsheetId,
-            sheetsApiKey,
+            sheetsCredentials,
             transactions
           );
           if (appended > 0) {
